@@ -3,7 +3,21 @@ package com.abn.pkm_forms.analisis;
 import java_cup.runtime.Symbol;
 import java.util.LinkedList;
 import com.abn.pkm_forms.interprete.abstracto.Instruccion;
+import com.abn.pkm_forms.interprete.abstracto.Expresion;
+import com.abn.pkm_forms.interprete.expresiones.ExpresionAccesoVariable;
+import com.abn.pkm_forms.interprete.expresiones.ExpresionBinaria;
+import com.abn.pkm_forms.interprete.expresiones.ExpresionLiteral;
+import com.abn.pkm_forms.interprete.expresiones.ExpresionUnaria;
 import com.abn.pkm_forms.interprete.instrucciones.InstruccionNop;
+import com.abn.pkm_forms.interprete.instrucciones.InstruccionAsignacion;
+import com.abn.pkm_forms.interprete.instrucciones.InstruccionDeclaracion;
+import com.abn.pkm_forms.interprete.instrucciones.InstruccionDropQuestion;
+import com.abn.pkm_forms.interprete.instrucciones.InstruccionMultipleQuestion;
+import com.abn.pkm_forms.interprete.instrucciones.InstruccionOpenQuestion;
+import com.abn.pkm_forms.interprete.instrucciones.InstruccionSection;
+import com.abn.pkm_forms.interprete.instrucciones.InstruccionSelectQuestion;
+import com.abn.pkm_forms.interprete.instrucciones.InstruccionText;
+import com.abn.pkm_forms.interprete.simbolo.TiposDato;
 
 parser code
 {:
@@ -28,7 +42,7 @@ parser code
     }
 :}
 
-terminal String ID, CADENA, ENTERO;
+terminal String ID, CADENA, ENTERO, DECIMAL;
 terminal SECTION, TEXT, OPEN_QUESTION, DROP_QUESTION, SELECT_QUESTION, MULTIPLE_QUESTION;
 terminal NUMBER, STRING, TRUE, FALSE;
 terminal MAS, MENOS, MULT, DIV, MOD, NOT, OR, AND;
@@ -37,6 +51,7 @@ terminal ASIGNACION, PUNTO_Y_COMA, DOS_PUNTOS, COMA, PARENTESIS_IZQ, PARENTESIS_
 
 non terminal LinkedList<Instruccion> INICIO, INSTRUCCIONES;
 non terminal Instruccion INSTRUCCION;
+non terminal Expresion EXPRESION;
 
 precedence left OR;
 precedence left AND;
@@ -54,9 +69,48 @@ INSTRUCCIONES ::= INSTRUCCIONES:a INSTRUCCION:b {: RESULT = a; RESULT.add(b); :}
                 | INSTRUCCION:a {: RESULT = new LinkedList<Instruccion>(); RESULT.add(a); :}
 ;
 
-INSTRUCCION ::= ID:a ASIGNACION ENTERO PUNTO_Y_COMA {: RESULT = new InstruccionNop(aleft, aright); :}
-              | ID:a ASIGNACION CADENA PUNTO_Y_COMA {: RESULT = new InstruccionNop(aleft, aright); :}
-              | SECTION:a ID PUNTO_Y_COMA {: RESULT = new InstruccionNop(aleft, aright); :}
-              | TEXT:a ID PUNTO_Y_COMA {: RESULT = new InstruccionNop(aleft, aright); :}
+INSTRUCCION ::= NUMBER:a ID:b PUNTO_Y_COMA {: RESULT = new InstruccionDeclaracion(TiposDato.NUMBER, b, null, aleft, aright); :}
+              | NUMBER:a ID:b ASIGNACION EXPRESION:c PUNTO_Y_COMA {: RESULT = new InstruccionDeclaracion(TiposDato.NUMBER, b, c, aleft, aright); :}
+              | STRING:a ID:b PUNTO_Y_COMA {: RESULT = new InstruccionDeclaracion(TiposDato.STRING, b, null, aleft, aright); :}
+              | STRING:a ID:b ASIGNACION EXPRESION:c PUNTO_Y_COMA {: RESULT = new InstruccionDeclaracion(TiposDato.STRING, b, c, aleft, aright); :}
+              | ID:a ASIGNACION EXPRESION:b PUNTO_Y_COMA {: RESULT = new InstruccionAsignacion(a, b, aleft, aright); :}
+
+              | SECTION:a ID:b PUNTO_Y_COMA {: RESULT = new InstruccionSection(b, aleft, aright); :}
+              | SECTION:a CADENA:b PUNTO_Y_COMA {: RESULT = new InstruccionSection(b, aleft, aright); :}
+              | TEXT:a ID:b PUNTO_Y_COMA {: RESULT = new InstruccionText(b, aleft, aright); :}
+              | TEXT:a CADENA:b PUNTO_Y_COMA {: RESULT = new InstruccionText(b, aleft, aright); :}
+              | OPEN_QUESTION:a ID:b PUNTO_Y_COMA {: RESULT = new InstruccionOpenQuestion(b, aleft, aright); :}
+              | OPEN_QUESTION:a CADENA:b PUNTO_Y_COMA {: RESULT = new InstruccionOpenQuestion(b, aleft, aright); :}
+              | DROP_QUESTION:a ID:b PUNTO_Y_COMA {: RESULT = new InstruccionDropQuestion(b, aleft, aright); :}
+              | DROP_QUESTION:a CADENA:b PUNTO_Y_COMA {: RESULT = new InstruccionDropQuestion(b, aleft, aright); :}
+              | SELECT_QUESTION:a ID:b PUNTO_Y_COMA {: RESULT = new InstruccionSelectQuestion(b, aleft, aright); :}
+              | SELECT_QUESTION:a CADENA:b PUNTO_Y_COMA {: RESULT = new InstruccionSelectQuestion(b, aleft, aright); :}
+              | MULTIPLE_QUESTION:a ID:b PUNTO_Y_COMA {: RESULT = new InstruccionMultipleQuestion(b, aleft, aright); :}
+              | MULTIPLE_QUESTION:a CADENA:b PUNTO_Y_COMA {: RESULT = new InstruccionMultipleQuestion(b, aleft, aright); :}
+
               | error:a PUNTO_Y_COMA {: RESULT = new InstruccionNop(aleft, aright); :}
+;
+
+EXPRESION ::= EXPRESION:a MAS EXPRESION:b {: RESULT = new ExpresionBinaria(a, "+", b, aleft, aright); :}
+            | EXPRESION:a MENOS EXPRESION:b {: RESULT = new ExpresionBinaria(a, "-", b, aleft, aright); :}
+            | EXPRESION:a MULT EXPRESION:b {: RESULT = new ExpresionBinaria(a, "*", b, aleft, aright); :}
+            | EXPRESION:a DIV EXPRESION:b {: RESULT = new ExpresionBinaria(a, "/", b, aleft, aright); :}
+            | EXPRESION:a MOD EXPRESION:b {: RESULT = new ExpresionBinaria(a, "%", b, aleft, aright); :}
+            | EXPRESION:a IGUALDAD EXPRESION:b {: RESULT = new ExpresionBinaria(a, "==", b, aleft, aright); :}
+            | EXPRESION:a DIFERENTE EXPRESION:b {: RESULT = new ExpresionBinaria(a, "!=", b, aleft, aright); :}
+            | EXPRESION:a MAYOR EXPRESION:b {: RESULT = new ExpresionBinaria(a, ">", b, aleft, aright); :}
+            | EXPRESION:a MENOR EXPRESION:b {: RESULT = new ExpresionBinaria(a, "<", b, aleft, aright); :}
+            | EXPRESION:a MAYOR_IGUAL EXPRESION:b {: RESULT = new ExpresionBinaria(a, ">=", b, aleft, aright); :}
+            | EXPRESION:a MENOR_IGUAL EXPRESION:b {: RESULT = new ExpresionBinaria(a, "<=", b, aleft, aright); :}
+            | EXPRESION:a OR EXPRESION:b {: RESULT = new ExpresionBinaria(a, "||", b, aleft, aright); :}
+            | EXPRESION:a AND EXPRESION:b {: RESULT = new ExpresionBinaria(a, "&&", b, aleft, aright); :}
+            | MENOS:a EXPRESION:b {: RESULT = new ExpresionUnaria("-", b, aleft, aright); :}
+            | NOT:a EXPRESION:b {: RESULT = new ExpresionUnaria("~", b, aleft, aright); :}
+            | PARENTESIS_IZQ EXPRESION:a PARENTESIS_DER {: RESULT = a; :}
+            | ENTERO:a {: RESULT = new ExpresionLiteral(TiposDato.NUMBER, Double.parseDouble(a), aleft, aright); :}
+            | DECIMAL:a {: RESULT = new ExpresionLiteral(TiposDato.NUMBER, Double.parseDouble(a), aleft, aright); :}
+            | CADENA:a {: RESULT = new ExpresionLiteral(TiposDato.STRING, a, aleft, aright); :}
+            | TRUE:a {: RESULT = new ExpresionLiteral(TiposDato.BOOLEAN, true, aleft, aright); :}
+            | FALSE:a {: RESULT = new ExpresionLiteral(TiposDato.BOOLEAN, false, aleft, aright); :}
+            | ID:a {: RESULT = new ExpresionAccesoVariable(a, aleft, aright); :}
 ;

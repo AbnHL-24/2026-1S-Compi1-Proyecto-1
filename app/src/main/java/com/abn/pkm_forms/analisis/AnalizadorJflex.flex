@@ -35,6 +35,7 @@ import java.util.LinkedList;
 
 ESPACIOS = [ \t\r\f\n]+
 ID = [a-zA-Z_][a-zA-Z0-9_]*
+DECIMAL = [0-9]+\.[0-9]+
 ENTERO = [0-9]+
 CADENA = [\"]([^\"\n]|\\\")*[\"]
 
@@ -111,6 +112,7 @@ LLAVE_DER = "}"
 <YYINITIAL> "$"[^\n]* { }
 <YYINITIAL> "/*"([^*]|\*+[^*/])*\*+"/" { }
 <YYINITIAL> {CADENA} { return simboloCadena(); }
+<YYINITIAL> {DECIMAL} { return simbolo(sym.DECIMAL); }
 <YYINITIAL> {ENTERO} { return simbolo(sym.ENTERO); }
 <YYINITIAL> {ID} { return simbolo(sym.ID); }
 <YYINITIAL> {ESPACIOS} { }
