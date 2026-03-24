@@ -67,13 +67,14 @@ number edad = 10;
 string nombre = "Ash";
 number indice = 2;
 number total = (edad * 2) + 5;
+number ancho_base = 320;
 string titulo = "Entrenador: " + nombre;
-SECTION "Inicio";
+SECTION [label: "Inicio", width: ancho_base, height: 220, pointX: 0, pointY: 0];
 TEXT titulo;
-OPEN_QUESTION "Cual es tu pokemon favorito?";
-DROP_QUESTION "Elige tipo";
-SELECT_QUESTION "Elige una opcion";
-MULTIPLE_QUESTION "Selecciona multiples";
+OPEN_QUESTION [label: "Cual es tu pokemon favorito?", width: ancho_base, height: 48];
+DROP_QUESTION [label: "Elige tipo", options: {"Fuego", "Agua", "Planta"}, correct: 1, width: ancho_base, height: 48];
+SELECT_QUESTION [label: "Elige una opcion", options: {"Pikachu", "Charmander", "Squirtle"}, correct: 0, width: ancho_base, height: 48];
+MULTIPLE_QUESTION [label: "Selecciona multiples", options: {"Rojo", "Azul", "Verde"}, correct: {0, 2}, width: ancho_base, height: 48];
 /* comentario de bloque */
 edad = total - 1;
 """
@@ -82,12 +83,12 @@ private const val PLANTILLA_BASE = """
 $ Plantilla base
 number edad = 18;
 string nombre = "Misty";
-SECTION "Datos";
-TEXT "Bienvenido";
-OPEN_QUESTION "Cual es tu pokemon favorito?";
-DROP_QUESTION "Elige tipo";
-SELECT_QUESTION "Elige una opcion";
-MULTIPLE_QUESTION "Selecciona multiples";
+SECTION [label: "Datos", width: 320, height: 220, pointX: 0, pointY: 0];
+TEXT [content: "Bienvenido", width: 320, height: 32];
+OPEN_QUESTION [label: "Cual es tu pokemon favorito?", width: 320, height: 48];
+DROP_QUESTION [label: "Elige tipo", options: {"opcion 1", "opcion 2"}, correct: 0, width: 320, height: 48];
+SELECT_QUESTION [label: "Elige una opcion", options: {"opcion 1", "opcion 2", "opcion 3"}, correct: 1, width: 320, height: 48];
+MULTIPLE_QUESTION [label: "Selecciona multiples", options: {"opcion 1", "opcion 2", "opcion 3"}, correct: {0, 2}, width: 320, height: 48];
 """
 
 private val opcionesColor = listOf(
@@ -204,13 +205,58 @@ private fun encontrarSeparadorPkm(linea: String): Int {
     return -1
 }
 
+private fun separarCamposPkm(linea: String): List<String> {
+    val campos = mutableListOf<String>()
+    val actual = StringBuilder()
+    var escapado = false
+
+    linea.forEach { caracter ->
+        if (escapado) {
+            actual.append(caracter)
+            escapado = false
+            return@forEach
+        }
+
+        if (caracter == '\\') {
+            escapado = true
+            actual.append(caracter)
+            return@forEach
+        }
+
+        if (caracter == '|') {
+            campos.add(actual.toString())
+            actual.clear()
+            return@forEach
+        }
+
+        actual.append(caracter)
+    }
+
+    campos.add(actual.toString())
+    return campos
+}
+
 private fun serializarElementosPkm(elementos: List<ElementoFormulario>): String {
     return buildString {
         appendLine("PKM_FORMS_V1")
         elementos.forEach { elemento ->
+            val opciones = elemento.opciones.joinToString(";;") { escaparCampoPkm(it) }
+            val indices = elemento.indicesCorrectos.joinToString(",")
             append(elemento.tipo.name)
             append('|')
             append(escaparCampoPkm(elemento.texto))
+            append('|')
+            append(elemento.ancho?.toString() ?: "")
+            append('|')
+            append(elemento.alto?.toString() ?: "")
+            append('|')
+            append(elemento.pointX?.toString() ?: "")
+            append('|')
+            append(elemento.pointY?.toString() ?: "")
+            append('|')
+            append(opciones)
+            append('|')
+            append(indices)
             appendLine()
         }
     }
@@ -236,15 +282,41 @@ private fun deserializarElementosPkm(contenido: String): ResultadoCargaPkm {
             return@forEachIndexed
         }
 
-        val tipoTexto = linea.substring(0, posicionSeparador)
-        val contenidoTexto = linea.substring(posicionSeparador + 1)
+        val campos = separarCamposPkm(linea)
+        val tipoTexto = campos.getOrNull(0).orEmpty()
         val tipo = runCatching { TipoElementoFormulario.valueOf(tipoTexto) }.getOrNull()
         if (tipo == null) {
             errores.add("Linea ${indice + 1} con tipo desconocido: $tipoTexto")
             return@forEachIndexed
         }
 
-        elementos.add(ElementoFormulario(tipo, desescaparCampoPkm(contenidoTexto)))
+        val texto = desescaparCampoPkm(campos.getOrNull(1).orEmpty())
+        val ancho = campos.getOrNull(2)?.toDoubleOrNull()
+        val alto = campos.getOrNull(3)?.toDoubleOrNull()
+        val pointX = campos.getOrNull(4)?.toDoubleOrNull()
+        val pointY = campos.getOrNull(5)?.toDoubleOrNull()
+        val opciones = campos.getOrNull(6)
+            ?.split(";;")
+            ?.filter { it.isNotBlank() }
+            ?.map { desescaparCampoPkm(it) }
+            ?: emptyList()
+        val indicesCorrectos = campos.getOrNull(7)
+            ?.split(",")
+            ?.mapNotNull { it.trim().toIntOrNull() }
+            ?: emptyList()
+
+        elementos.add(
+            ElementoFormulario(
+                tipo = tipo,
+                texto = texto,
+                ancho = ancho,
+                alto = alto,
+                pointX = pointX,
+                pointY = pointY,
+                opciones = opciones,
+                indicesCorrectos = indicesCorrectos
+            )
+        )
     }
 
     return ResultadoCargaPkm(elementos = elementos, errores = errores)
@@ -297,19 +369,25 @@ private fun esPregunta(tipo: TipoElementoFormulario): Boolean {
         tipo == TipoElementoFormulario.MULTIPLE_QUESTION
 }
 
-private fun validarRespuestaCerrada(tipo: TipoElementoFormulario, valor: String): Boolean {
-    if (tipo == TipoElementoFormulario.DROP_QUESTION || tipo == TipoElementoFormulario.SELECT_QUESTION) {
+private fun validarRespuestaCerrada(elemento: ElementoFormulario, valor: String): Boolean {
+    if (elemento.tipo == TipoElementoFormulario.DROP_QUESTION || elemento.tipo == TipoElementoFormulario.SELECT_QUESTION) {
         val indice = valor.toIntOrNull() ?: return false
-        return indice >= 0
+        if (indice < 0) return false
+        if (elemento.opciones.isNotEmpty() && indice >= elemento.opciones.size) return false
+        if (elemento.indicesCorrectos.isEmpty()) return true
+        return elemento.indicesCorrectos.contains(indice)
     }
 
-    if (tipo == TipoElementoFormulario.MULTIPLE_QUESTION) {
+    if (elemento.tipo == TipoElementoFormulario.MULTIPLE_QUESTION) {
         val partes = valor.split(",").map { it.trim() }.filter { it.isNotEmpty() }
         if (partes.isEmpty()) return false
-        return partes.all {
-            val indice = it.toIntOrNull() ?: return@all false
-            indice >= 0
+        val indices = partes.map {
+            it.toIntOrNull() ?: return false
         }
+        if (indices.any { it < 0 }) return false
+        if (elemento.opciones.isNotEmpty() && indices.any { it >= elemento.opciones.size }) return false
+        if (elemento.indicesCorrectos.isEmpty()) return true
+        return indices.sorted() == elemento.indicesCorrectos.sorted()
     }
 
     return false
@@ -341,7 +419,7 @@ private fun corregirRespuestas(
         }
 
         cerradasCorregibles++
-        val esValida = validarRespuestaCerrada(elemento.tipo, respuesta)
+        val esValida = validarRespuestaCerrada(elemento, respuesta)
         if (esValida) {
             cerradasValidas++
         } else {
@@ -716,7 +794,7 @@ private fun FormularioRenderizado(
                 TipoElementoFormulario.SECTION -> {
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Text(
-                            text = "SECTION: ${elemento.texto}",
+                            text = "SECTION: ${elemento.texto} (w=${elemento.ancho ?: "-"}, h=${elemento.alto ?: "-"}, x=${elemento.pointX ?: "-"}, y=${elemento.pointY ?: "-"})",
                             modifier = Modifier.padding(12.dp),
                             style = MaterialTheme.typography.titleSmall
                         )
@@ -725,7 +803,11 @@ private fun FormularioRenderizado(
 
                 TipoElementoFormulario.TEXT -> {
                     Text(
-                        text = elemento.texto,
+                        text = if (elemento.ancho != null || elemento.alto != null) {
+                            "${elemento.texto} (w=${elemento.ancho ?: "-"}, h=${elemento.alto ?: "-"})"
+                        } else {
+                            elemento.texto
+                        },
                         style = MaterialTheme.typography.bodyLarge,
                         modifier = Modifier.padding(start = 4.dp)
                     )
@@ -754,6 +836,12 @@ private fun FormularioRenderizado(
                         else -> "Multiple"
                     }
                     Text("$tipo: ${elemento.texto}")
+                    if (elemento.opciones.isNotEmpty()) {
+                        Text("Opciones: ${elemento.opciones.joinToString(" | ")}")
+                    }
+                    if (elemento.indicesCorrectos.isNotEmpty()) {
+                        Text("Correctas: ${elemento.indicesCorrectos.joinToString(",")}")
+                    }
                     if (modoContestar) {
                         OutlinedTextField(
                             value = respuestas[indice] ?: "",
