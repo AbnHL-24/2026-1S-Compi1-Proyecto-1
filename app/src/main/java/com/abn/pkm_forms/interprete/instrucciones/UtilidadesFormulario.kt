@@ -8,6 +8,37 @@ import com.abn.pkm_forms.interprete.simbolo.EstiloFormulario
 import com.abn.pkm_forms.interprete.simbolo.TablaSimbolos
 import com.abn.pkm_forms.interprete.simbolo.TiposDato
 
+private val regexHex = Regex("^#[0-9a-fA-F]{6}$")
+private val regexRgb = Regex("^\\(\\s*(?:[01]?\\d?\\d|2[0-4]\\d|25[0-5])\\s*,\\s*(?:[01]?\\d?\\d|2[0-4]\\d|25[0-5])\\s*,\\s*(?:[01]?\\d?\\d|2[0-4]\\d|25[0-5])\\s*\\)$")
+private val regexHsl = Regex("^<\\s*(?:[0-2]?\\d?\\d|3[0-5]\\d)\\s*,\\s*(?:[01]?\\d?\\d|2[0-4]\\d|25[0-5])\\s*,\\s*(?:[01]?\\d?\\d|2[0-4]\\d|25[0-5])\\s*>$")
+private val coloresBase = setOf("RED", "BLUE", "GREEN", "PURPLE", "SKY", "YELLOW", "BLACK", "WHITE")
+private val fuentesValidas = setOf("MONO", "SANS_SERIF", "CURSIVE")
+
+private fun validarColor(valor: String): Boolean {
+    val limpio = valor.trim()
+    return regexHex.matches(limpio) ||
+        regexRgb.matches(limpio) ||
+        regexHsl.matches(limpio) ||
+        coloresBase.contains(limpio.uppercase())
+}
+
+private fun validarFuente(valor: String): Boolean {
+    return fuentesValidas.contains(valor.trim().uppercase())
+}
+
+private fun validarFormatoBorde(valor: String): Boolean {
+    val limpio = valor.trim()
+    if (!limpio.startsWith("(") || !limpio.endsWith(")")) return false
+    val interno = limpio.substring(1, limpio.length - 1)
+    val partes = interno.split(",").map { it.trim() }
+    if (partes.size != 3) return false
+    val grosor = partes[0].toDoubleOrNull() ?: return false
+    if (grosor < 0) return false
+    val tipo = partes[1].uppercase()
+    if (tipo != "LINE" && tipo != "DOTTED" && tipo != "DOUBLE") return false
+    return validarColor(partes[2])
+}
+
 internal fun resolverResultado(
     expresion: Expresion,
     arbol: Arbol,
@@ -157,6 +188,31 @@ internal fun resolverEstilo(
     if (errorTamanio != null) return Pair(EstiloFormulario(), errorTamanio)
     val (borde, errorBorde) = texto("style_border")
     if (errorBorde != null) return Pair(EstiloFormulario(), errorBorde)
+
+    if (colorTexto != null && !validarColor(colorTexto)) {
+        return Pair(
+            EstiloFormulario(),
+            ErrorInterpretacion("Semantico", "Color invalido en style_color: '$colorTexto'", fila, columna)
+        )
+    }
+    if (colorFondo != null && !validarColor(colorFondo)) {
+        return Pair(
+            EstiloFormulario(),
+            ErrorInterpretacion("Semantico", "Color invalido en style_background: '$colorFondo'", fila, columna)
+        )
+    }
+    if (fuente != null && !validarFuente(fuente)) {
+        return Pair(
+            EstiloFormulario(),
+            ErrorInterpretacion("Semantico", "Fuente invalida en style_font: '$fuente'", fila, columna)
+        )
+    }
+    if (borde != null && !validarFormatoBorde(borde)) {
+        return Pair(
+            EstiloFormulario(),
+            ErrorInterpretacion("Semantico", "Borde invalido en style_border: '$borde'", fila, columna)
+        )
+    }
 
     return Pair(
         EstiloFormulario(

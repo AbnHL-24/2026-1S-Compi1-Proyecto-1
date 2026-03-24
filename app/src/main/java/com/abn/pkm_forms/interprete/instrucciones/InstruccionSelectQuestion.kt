@@ -49,6 +49,12 @@ class InstruccionSelectQuestion(
             opcionesFinales.addAll(opcionesResueltas ?: emptyList())
         }
 
+        if (opcionesFinales.size > 5) {
+            arbol.agregarAdvertencia(
+                "SELECT_QUESTION '${textoResuelto.orEmpty()}' tiene ${opcionesFinales.size} opciones; se recomienda maximo 5"
+            )
+        }
+
         val (indicesCorrectos, errorCorrectos) = resolverIndicesCorrectos(correctos, arbol, tabla, opcionesFinales.size, fila, columna)
         if (errorCorrectos != null) return errorCorrectos
         if (indicesCorrectos != null && indicesCorrectos.size > 1) {
