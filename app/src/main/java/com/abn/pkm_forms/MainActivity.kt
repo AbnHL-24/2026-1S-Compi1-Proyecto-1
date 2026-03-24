@@ -55,6 +55,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import com.abn.pkm_forms.analisis.ResultadoAnalisisFormulario
 import com.abn.pkm_forms.analisis.ServicioAnalisisFormulario
 import com.abn.pkm_forms.interprete.simbolo.ElementoFormulario
+import com.abn.pkm_forms.interprete.simbolo.EstiloFormulario
 import com.abn.pkm_forms.interprete.simbolo.TipoElementoFormulario
 import com.abn.pkm_forms.ui.theme.PKM_FORMSTheme
 import kotlinx.coroutines.Dispatchers
@@ -68,6 +69,7 @@ string nombre = "Ash";
 number indice = 2;
 number total = (edad * 2) + 5;
 number ancho_base = 320;
+number i = 0;
 string titulo = "Entrenador: " + nombre;
 SECTION [label: "Inicio", width: ancho_base, height: 220, pointX: 0, pointY: 0];
 TEXT titulo;
@@ -75,6 +77,16 @@ OPEN_QUESTION [label: "Cual es tu pokemon favorito?", width: ancho_base, height:
 DROP_QUESTION [label: "Elige tipo", options: {"Fuego", "Agua", "Planta"}, correct: 1, width: ancho_base, height: 48];
 SELECT_QUESTION [label: "Elige una opcion", options: {"Pikachu", "Charmander", "Squirtle"}, correct: 0, width: ancho_base, height: 48];
 MULTIPLE_QUESTION [label: "Selecciona multiples", options: {"Rojo", "Azul", "Verde"}, correct: {0, 2}, width: ancho_base, height: 48];
+TABLE [label: "Tabla de pruebas", width: ancho_base, height: 120, pointX: 0, pointY: 230];
+IF (edad > 5) {
+    TEXT [content: "IF activo", width: ancho_base, height: 28];
+} ELSE {
+    TEXT [content: "IF no activo", width: ancho_base, height: 28];
+}
+WHILE (i < 2) {
+    TEXT [content: "WHILE vuelta", width: ancho_base, height: 24];
+    i = i + 1;
+}
 /* comentario de bloque */
 edad = total - 1;
 """
@@ -102,7 +114,7 @@ private val opcionesColor = listOf(
 private val regexComentarios = Regex("\\$[^\\n]*|/\\*([\\s\\S]*?)\\*/")
 private val regexCadenas = Regex("\"([^\"\\\\]|\\\\.)*\"")
 private val regexNumeros = Regex("\\b\\d+(\\.\\d+)?\\b")
-private val regexReservadas = Regex("\\b(SECTION|TEXT|OPEN_QUESTION|DROP_QUESTION|SELECT_QUESTION|MULTIPLE_QUESTION|number|string|true|false)\\b")
+private val regexReservadas = Regex("\\b(SECTION|TABLE|TEXT|OPEN_QUESTION|DROP_QUESTION|SELECT_QUESTION|MULTIPLE_QUESTION|IF|ELSE|WHILE|DO|FOR|in|number|string|true|false)\\b")
 private val regexOperadores = Regex("(\\|\\||&&|==|!=|>=|<=|[+\\-*/%~<>]=?|=)")
 
 private val transformacionSintaxis = VisualTransformation { textoOriginal ->
@@ -447,6 +459,16 @@ private fun corregirRespuestas(
     )
 }
 
+private fun descripcionEstilo(estilo: EstiloFormulario): String {
+    val partes = mutableListOf<String>()
+    estilo.colorTexto?.let { partes.add("color=$it") }
+    estilo.colorFondo?.let { partes.add("bg=$it") }
+    estilo.familiaFuente?.let { partes.add("font=$it") }
+    estilo.tamanioTexto?.let { partes.add("size=$it") }
+    estilo.borde?.let { partes.add("border=$it") }
+    return if (partes.isEmpty()) "" else " | ${partes.joinToString(", ")}"
+}
+
 @Composable
 fun PantallaAnalizadorFormulario(modifier: Modifier = Modifier) {
     val servicioAnalisis = remember { ServicioAnalisisFormulario() }
@@ -788,77 +810,85 @@ private fun FormularioRenderizado(
     modoContestar: Boolean,
     respuestas: MutableMap<Int, String>
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        elementos.forEachIndexed { indice, elemento ->
-            when (elemento.tipo) {
-                TipoElementoFormulario.SECTION -> {
-                    Card(modifier = Modifier.fillMaxWidth()) {
+    @Composable
+    fun renderElemento(elemento: ElementoFormulario, indice: Int, nivel: Int) {
+        val prefijo = "  ".repeat(nivel)
+        when (elemento.tipo) {
+            TipoElementoFormulario.SECTION,
+            TipoElementoFormulario.TABLE -> {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        val tipo = if (elemento.tipo == TipoElementoFormulario.SECTION) "SECTION" else "TABLE"
                         Text(
-                            text = "SECTION: ${elemento.texto} (w=${elemento.ancho ?: "-"}, h=${elemento.alto ?: "-"}, x=${elemento.pointX ?: "-"}, y=${elemento.pointY ?: "-"})",
-                            modifier = Modifier.padding(12.dp),
+                            text = "$prefijo$tipo: ${elemento.texto} (w=${elemento.ancho ?: "-"}, h=${elemento.alto ?: "-"}, x=${elemento.pointX ?: "-"}, y=${elemento.pointY ?: "-"})${descripcionEstilo(elemento.estilo)}",
                             style = MaterialTheme.typography.titleSmall
                         )
-                    }
-                }
-
-                TipoElementoFormulario.TEXT -> {
-                    Text(
-                        text = if (elemento.ancho != null || elemento.alto != null) {
-                            "${elemento.texto} (w=${elemento.ancho ?: "-"}, h=${elemento.alto ?: "-"})"
-                        } else {
-                            elemento.texto
-                        },
-                        style = MaterialTheme.typography.bodyLarge,
-                        modifier = Modifier.padding(start = 4.dp)
-                    )
-                }
-
-                TipoElementoFormulario.OPEN_QUESTION -> {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("Abierta: ${elemento.texto}")
-                        if (modoContestar) {
-                            OutlinedTextField(
-                                value = respuestas[indice] ?: "",
-                                onValueChange = { respuestas[indice] = it },
-                                label = { Text("Tu respuesta") },
-                                modifier = Modifier.fillMaxWidth()
-                            )
+                        elemento.elementosAnidados.forEachIndexed { idx, hijo ->
+                            renderElemento(hijo, indice * 1000 + idx + 1, nivel + 1)
                         }
                     }
                 }
+            }
 
-                TipoElementoFormulario.DROP_QUESTION,
-                TipoElementoFormulario.SELECT_QUESTION,
-                TipoElementoFormulario.MULTIPLE_QUESTION -> {
-                    val tipo = when (elemento.tipo) {
-                        TipoElementoFormulario.DROP_QUESTION -> "Drop"
-                        TipoElementoFormulario.SELECT_QUESTION -> "Select"
-                        else -> "Multiple"
-                    }
-                    Text("$tipo: ${elemento.texto}")
-                    if (elemento.opciones.isNotEmpty()) {
-                        Text("Opciones: ${elemento.opciones.joinToString(" | ")}")
-                    }
-                    if (elemento.indicesCorrectos.isNotEmpty()) {
-                        Text("Correctas: ${elemento.indicesCorrectos.joinToString(",")}")
-                    }
+            TipoElementoFormulario.TEXT -> {
+                Text(
+                    text = "$prefijo${elemento.texto}${descripcionEstilo(elemento.estilo)}",
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.padding(start = 4.dp)
+                )
+            }
+
+            TipoElementoFormulario.OPEN_QUESTION -> {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("${prefijo}Abierta: ${elemento.texto}${descripcionEstilo(elemento.estilo)}")
                     if (modoContestar) {
                         OutlinedTextField(
                             value = respuestas[indice] ?: "",
                             onValueChange = { respuestas[indice] = it },
-                            label = {
-                                val etiqueta = if (elemento.tipo == TipoElementoFormulario.MULTIPLE_QUESTION) {
-                                    "Indices separados por coma"
-                                } else {
-                                    "Indice de respuesta (desde 0)"
-                                }
-                                Text(etiqueta)
-                            },
+                            label = { Text("Tu respuesta") },
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
                 }
             }
+
+            TipoElementoFormulario.DROP_QUESTION,
+            TipoElementoFormulario.SELECT_QUESTION,
+            TipoElementoFormulario.MULTIPLE_QUESTION -> {
+                val tipo = when (elemento.tipo) {
+                    TipoElementoFormulario.DROP_QUESTION -> "Drop"
+                    TipoElementoFormulario.SELECT_QUESTION -> "Select"
+                    else -> "Multiple"
+                }
+                Text("$prefijo$tipo: ${elemento.texto}${descripcionEstilo(elemento.estilo)}")
+                if (elemento.opciones.isNotEmpty()) {
+                    Text("$prefijo Opciones: ${elemento.opciones.joinToString(" | ")}")
+                }
+                if (elemento.indicesCorrectos.isNotEmpty()) {
+                    Text("$prefijo Correctas: ${elemento.indicesCorrectos.joinToString(",")}")
+                }
+                if (modoContestar) {
+                    OutlinedTextField(
+                        value = respuestas[indice] ?: "",
+                        onValueChange = { respuestas[indice] = it },
+                        label = {
+                            val etiqueta = if (elemento.tipo == TipoElementoFormulario.MULTIPLE_QUESTION) {
+                                "Indices separados por coma"
+                            } else {
+                                "Indice de respuesta (desde 0)"
+                            }
+                            Text(etiqueta)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+        }
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        elementos.forEachIndexed { indice, elemento ->
+            renderElemento(elemento, indice, 0)
         }
     }
 }
