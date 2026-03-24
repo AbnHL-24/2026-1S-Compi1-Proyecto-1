@@ -49,6 +49,8 @@ NUMBER = "number"
 STRING = "string"
 TRUE = "true"
 FALSE = "false"
+OPTIONS = "options"
+CORRECT = "correct"
 
 MAS = "+"
 MENOS = "-"
@@ -72,6 +74,8 @@ PARENTESIS_IZQ = "("
 PARENTESIS_DER = ")"
 LLAVE_IZQ = "{"
 LLAVE_DER = "}"
+CORCHETE_IZQ = "["
+CORCHETE_DER = "]"
 
 %%
 
@@ -85,6 +89,8 @@ LLAVE_DER = "}"
 <YYINITIAL> {STRING} { return simbolo(sym.STRING); }
 <YYINITIAL> {TRUE} { return simbolo(sym.TRUE); }
 <YYINITIAL> {FALSE} { return simbolo(sym.FALSE); }
+<YYINITIAL> {OPTIONS} { return simbolo(sym.OPTIONS); }
+<YYINITIAL> {CORRECT} { return simbolo(sym.CORRECT); }
 
 <YYINITIAL> {MAS} { return simbolo(sym.MAS); }
 <YYINITIAL> {MENOS} { return simbolo(sym.MENOS); }
@@ -108,6 +114,8 @@ LLAVE_DER = "}"
 <YYINITIAL> {PARENTESIS_DER} { return simbolo(sym.PARENTESIS_DER); }
 <YYINITIAL> {LLAVE_IZQ} { return simbolo(sym.LLAVE_IZQ); }
 <YYINITIAL> {LLAVE_DER} { return simbolo(sym.LLAVE_DER); }
+<YYINITIAL> {CORCHETE_IZQ} { return simbolo(sym.CORCHETE_IZQ); }
+<YYINITIAL> {CORCHETE_DER} { return simbolo(sym.CORCHETE_DER); }
 
 <YYINITIAL> "$"[^\n]* { }
 <YYINITIAL> "/*"([^*]|\*+[^*/])*\*+"/" { }

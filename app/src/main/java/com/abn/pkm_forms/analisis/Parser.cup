@@ -23,6 +23,54 @@ parser code
 {:
     public LinkedList<ErrorSintactico> erroresSintacticos = new LinkedList<>();
 
+    private static class ParAtributo {
+        String nombre;
+        Expresion valor;
+        LinkedList<Expresion> lista;
+
+        ParAtributo(String nombre, Expresion valor) {
+            this.nombre = nombre;
+            this.valor = valor;
+            this.lista = null;
+        }
+
+        ParAtributo(String nombre, LinkedList<Expresion> lista) {
+            this.nombre = nombre;
+            this.valor = null;
+            this.lista = lista;
+        }
+    }
+
+    private Expresion obtenerExpresion(LinkedList<ParAtributo> atributos, String nombre) {
+        for (ParAtributo atributo : atributos) {
+            if (atributo.nombre.equalsIgnoreCase(nombre) && atributo.valor != null) {
+                return atributo.valor;
+            }
+        }
+        return null;
+    }
+
+    private LinkedList<Expresion> obtenerLista(LinkedList<ParAtributo> atributos, String nombre) {
+        for (ParAtributo atributo : atributos) {
+            if (atributo.nombre.equalsIgnoreCase(nombre) && atributo.lista != null) {
+                return atributo.lista;
+            }
+        }
+        return new LinkedList<Expresion>();
+    }
+
+    private Expresion obtenerTexto(LinkedList<ParAtributo> atributos, int fila, int columna) {
+        Expresion content = obtenerExpresion(atributos, "content");
+        if (content != null) return content;
+        Expresion label = obtenerExpresion(atributos, "label");
+        if (label != null) return label;
+        return new ExpresionLiteral(TiposDato.STRING, "", fila, columna);
+    }
+
+    private Expresion textoPorDefecto(String valor, int fila, int columna) {
+        return new ExpresionLiteral(TiposDato.STRING, valor, fila, columna);
+    }
+
     @Override
     public void syntax_error(Symbol simbolo) {
         erroresSintacticos.add(new ErrorSintactico(
@@ -45,13 +93,18 @@ parser code
 terminal String ID, CADENA, ENTERO, DECIMAL;
 terminal SECTION, TEXT, OPEN_QUESTION, DROP_QUESTION, SELECT_QUESTION, MULTIPLE_QUESTION;
 terminal NUMBER, STRING, TRUE, FALSE;
+terminal OPTIONS, CORRECT;
 terminal MAS, MENOS, MULT, DIV, MOD, NOT, OR, AND;
 terminal IGUALDAD, DIFERENTE, MAYOR, MENOR, MAYOR_IGUAL, MENOR_IGUAL;
-terminal ASIGNACION, PUNTO_Y_COMA, DOS_PUNTOS, COMA, PARENTESIS_IZQ, PARENTESIS_DER, LLAVE_IZQ, LLAVE_DER;
+terminal ASIGNACION, PUNTO_Y_COMA, DOS_PUNTOS, COMA, PARENTESIS_IZQ, PARENTESIS_DER, LLAVE_IZQ, LLAVE_DER, CORCHETE_IZQ, CORCHETE_DER;
 
 non terminal LinkedList<Instruccion> INICIO, INSTRUCCIONES;
 non terminal Instruccion INSTRUCCION;
 non terminal Expresion EXPRESION;
+non terminal LinkedList<ParAtributo> LISTA_ATRIBUTOS;
+non terminal ParAtributo ATRIBUTO;
+non terminal LinkedList<Expresion> LISTA_EXPRESIONES;
+non terminal LinkedList<Expresion> LISTA_EXPRESIONES_OPT;
 
 precedence left OR;
 precedence left AND;
@@ -75,20 +128,132 @@ INSTRUCCION ::= NUMBER:a ID:b PUNTO_Y_COMA {: RESULT = new InstruccionDeclaracio
               | STRING:a ID:b ASIGNACION EXPRESION:c PUNTO_Y_COMA {: RESULT = new InstruccionDeclaracion(TiposDato.STRING, b, c, aleft, aright); :}
               | ID:a ASIGNACION EXPRESION:b PUNTO_Y_COMA {: RESULT = new InstruccionAsignacion(a, b, aleft, aright); :}
 
-              | SECTION:a ID:b PUNTO_Y_COMA {: RESULT = new InstruccionSection(b, aleft, aright); :}
-              | SECTION:a CADENA:b PUNTO_Y_COMA {: RESULT = new InstruccionSection(b, aleft, aright); :}
-              | TEXT:a ID:b PUNTO_Y_COMA {: RESULT = new InstruccionText(b, aleft, aright); :}
-              | TEXT:a CADENA:b PUNTO_Y_COMA {: RESULT = new InstruccionText(b, aleft, aright); :}
-              | OPEN_QUESTION:a ID:b PUNTO_Y_COMA {: RESULT = new InstruccionOpenQuestion(b, aleft, aright); :}
-              | OPEN_QUESTION:a CADENA:b PUNTO_Y_COMA {: RESULT = new InstruccionOpenQuestion(b, aleft, aright); :}
-              | DROP_QUESTION:a ID:b PUNTO_Y_COMA {: RESULT = new InstruccionDropQuestion(b, aleft, aright); :}
-              | DROP_QUESTION:a CADENA:b PUNTO_Y_COMA {: RESULT = new InstruccionDropQuestion(b, aleft, aright); :}
-              | SELECT_QUESTION:a ID:b PUNTO_Y_COMA {: RESULT = new InstruccionSelectQuestion(b, aleft, aright); :}
-              | SELECT_QUESTION:a CADENA:b PUNTO_Y_COMA {: RESULT = new InstruccionSelectQuestion(b, aleft, aright); :}
-              | MULTIPLE_QUESTION:a ID:b PUNTO_Y_COMA {: RESULT = new InstruccionMultipleQuestion(b, aleft, aright); :}
-              | MULTIPLE_QUESTION:a CADENA:b PUNTO_Y_COMA {: RESULT = new InstruccionMultipleQuestion(b, aleft, aright); :}
+              | SECTION:a ID:b PUNTO_Y_COMA {: RESULT = new InstruccionSection(new ExpresionAccesoVariable(b, aleft, aright), null, null, null, null, aleft, aright); :}
+              | SECTION:a CADENA:b PUNTO_Y_COMA {: RESULT = new InstruccionSection(new ExpresionLiteral(TiposDato.STRING, b, aleft, aright), null, null, null, null, aleft, aright); :}
+              | SECTION:a CORCHETE_IZQ LISTA_ATRIBUTOS:b CORCHETE_DER PUNTO_Y_COMA
+                {:
+                    Expresion etiqueta = obtenerTexto(b, aleft, aright);
+                    RESULT = new InstruccionSection(
+                        etiqueta,
+                        obtenerExpresion(b, "width"),
+                        obtenerExpresion(b, "height"),
+                        obtenerExpresion(b, "pointX"),
+                        obtenerExpresion(b, "pointY"),
+                        aleft,
+                        aright
+                    );
+                :}
+
+              | TEXT:a ID:b PUNTO_Y_COMA {: RESULT = new InstruccionText(new ExpresionAccesoVariable(b, aleft, aright), null, null, aleft, aright); :}
+              | TEXT:a CADENA:b PUNTO_Y_COMA {: RESULT = new InstruccionText(new ExpresionLiteral(TiposDato.STRING, b, aleft, aright), null, null, aleft, aright); :}
+              | TEXT:a CORCHETE_IZQ LISTA_ATRIBUTOS:b CORCHETE_DER PUNTO_Y_COMA
+                {:
+                    RESULT = new InstruccionText(
+                        obtenerTexto(b, aleft, aright),
+                        obtenerExpresion(b, "width"),
+                        obtenerExpresion(b, "height"),
+                        aleft,
+                        aright
+                    );
+                :}
+
+              | OPEN_QUESTION:a ID:b PUNTO_Y_COMA {: RESULT = new InstruccionOpenQuestion(new ExpresionAccesoVariable(b, aleft, aright), null, null, aleft, aright); :}
+              | OPEN_QUESTION:a CADENA:b PUNTO_Y_COMA {: RESULT = new InstruccionOpenQuestion(new ExpresionLiteral(TiposDato.STRING, b, aleft, aright), null, null, aleft, aright); :}
+              | OPEN_QUESTION:a CORCHETE_IZQ LISTA_ATRIBUTOS:b CORCHETE_DER PUNTO_Y_COMA
+                {:
+                    RESULT = new InstruccionOpenQuestion(
+                        obtenerTexto(b, aleft, aright),
+                        obtenerExpresion(b, "width"),
+                        obtenerExpresion(b, "height"),
+                        aleft,
+                        aright
+                    );
+                :}
+
+              | DROP_QUESTION:a ID:b PUNTO_Y_COMA {: RESULT = new InstruccionDropQuestion(new ExpresionAccesoVariable(b, aleft, aright), null, null, new LinkedList<Expresion>(), new LinkedList<Expresion>(), aleft, aright); :}
+              | DROP_QUESTION:a CADENA:b PUNTO_Y_COMA {: RESULT = new InstruccionDropQuestion(new ExpresionLiteral(TiposDato.STRING, b, aleft, aright), null, null, new LinkedList<Expresion>(), new LinkedList<Expresion>(), aleft, aright); :}
+              | DROP_QUESTION:a CORCHETE_IZQ LISTA_ATRIBUTOS:b CORCHETE_DER PUNTO_Y_COMA
+                {:
+                    LinkedList<Expresion> correctos = new LinkedList<Expresion>();
+                    Expresion correcto = obtenerExpresion(b, "correct");
+                    if (correcto != null) {
+                        correctos.add(correcto);
+                    } else {
+                        correctos = obtenerLista(b, "correct");
+                    }
+                    RESULT = new InstruccionDropQuestion(
+                        obtenerTexto(b, aleft, aright),
+                        obtenerExpresion(b, "width"),
+                        obtenerExpresion(b, "height"),
+                        obtenerLista(b, "options"),
+                        correctos,
+                        aleft,
+                        aright
+                    );
+                :}
+
+              | SELECT_QUESTION:a ID:b PUNTO_Y_COMA {: RESULT = new InstruccionSelectQuestion(new ExpresionAccesoVariable(b, aleft, aright), null, null, new LinkedList<Expresion>(), new LinkedList<Expresion>(), aleft, aright); :}
+              | SELECT_QUESTION:a CADENA:b PUNTO_Y_COMA {: RESULT = new InstruccionSelectQuestion(new ExpresionLiteral(TiposDato.STRING, b, aleft, aright), null, null, new LinkedList<Expresion>(), new LinkedList<Expresion>(), aleft, aright); :}
+              | SELECT_QUESTION:a CORCHETE_IZQ LISTA_ATRIBUTOS:b CORCHETE_DER PUNTO_Y_COMA
+                {:
+                    LinkedList<Expresion> correctos = new LinkedList<Expresion>();
+                    Expresion correcto = obtenerExpresion(b, "correct");
+                    if (correcto != null) {
+                        correctos.add(correcto);
+                    } else {
+                        correctos = obtenerLista(b, "correct");
+                    }
+                    RESULT = new InstruccionSelectQuestion(
+                        obtenerTexto(b, aleft, aright),
+                        obtenerExpresion(b, "width"),
+                        obtenerExpresion(b, "height"),
+                        obtenerLista(b, "options"),
+                        correctos,
+                        aleft,
+                        aright
+                    );
+                :}
+
+              | MULTIPLE_QUESTION:a ID:b PUNTO_Y_COMA {: RESULT = new InstruccionMultipleQuestion(new ExpresionAccesoVariable(b, aleft, aright), null, null, new LinkedList<Expresion>(), new LinkedList<Expresion>(), aleft, aright); :}
+              | MULTIPLE_QUESTION:a CADENA:b PUNTO_Y_COMA {: RESULT = new InstruccionMultipleQuestion(new ExpresionLiteral(TiposDato.STRING, b, aleft, aright), null, null, new LinkedList<Expresion>(), new LinkedList<Expresion>(), aleft, aright); :}
+              | MULTIPLE_QUESTION:a CORCHETE_IZQ LISTA_ATRIBUTOS:b CORCHETE_DER PUNTO_Y_COMA
+                {:
+                    LinkedList<Expresion> correctos = obtenerLista(b, "correct");
+                    Expresion correcto = obtenerExpresion(b, "correct");
+                    if (correcto != null) {
+                        correctos = new LinkedList<Expresion>();
+                        correctos.add(correcto);
+                    }
+                    RESULT = new InstruccionMultipleQuestion(
+                        obtenerTexto(b, aleft, aright),
+                        obtenerExpresion(b, "width"),
+                        obtenerExpresion(b, "height"),
+                        obtenerLista(b, "options"),
+                        correctos,
+                        aleft,
+                        aright
+                    );
+                :}
 
               | error:a PUNTO_Y_COMA {: RESULT = new InstruccionNop(aleft, aright); :}
+;
+
+LISTA_ATRIBUTOS ::= LISTA_ATRIBUTOS:a COMA ATRIBUTO:b {: RESULT = a; RESULT.add(b); :}
+                  | ATRIBUTO:a {: RESULT = new LinkedList<ParAtributo>(); RESULT.add(a); :}
+;
+
+ATRIBUTO ::= ID:a DOS_PUNTOS EXPRESION:b {: RESULT = new ParAtributo(a, b); :}
+           | OPTIONS:a DOS_PUNTOS LLAVE_IZQ LISTA_EXPRESIONES_OPT:b LLAVE_DER {: RESULT = new ParAtributo("options", b); :}
+           | CORRECT:a DOS_PUNTOS LLAVE_IZQ LISTA_EXPRESIONES_OPT:b LLAVE_DER {: RESULT = new ParAtributo("correct", b); :}
+           | CORRECT:a DOS_PUNTOS EXPRESION:b {: RESULT = new ParAtributo("correct", b); :}
+;
+
+LISTA_EXPRESIONES_OPT ::= LISTA_EXPRESIONES:a {: RESULT = a; :}
+                        | {: RESULT = new LinkedList<Expresion>(); :}
+;
+
+LISTA_EXPRESIONES ::= LISTA_EXPRESIONES:a COMA EXPRESION:b {: RESULT = a; RESULT.add(b); :}
+                    | EXPRESION:a {: RESULT = new LinkedList<Expresion>(); RESULT.add(a); :}
 ;
 
 EXPRESION ::= EXPRESION:a MAS EXPRESION:b {: RESULT = new ExpresionBinaria(a, "+", b, aleft, aright); :}
