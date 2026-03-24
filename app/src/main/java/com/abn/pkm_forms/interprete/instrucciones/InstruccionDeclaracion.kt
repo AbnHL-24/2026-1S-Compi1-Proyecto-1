@@ -16,6 +16,15 @@ class InstruccionDeclaracion(
     columna: Int
 ) : Instruccion(fila, columna) {
     override fun interpretar(arbol: Arbol, tabla: TablaSimbolos): ErrorInterpretacion? {
+        if (arbol.estaEnBloqueControl()) {
+            return ErrorInterpretacion(
+                "Semantico",
+                "No se permite declarar variables dentro de bloques de control",
+                fila,
+                columna
+            )
+        }
+
         if (tabla.existeEnEntornoActual(identificador)) {
             return ErrorInterpretacion("Semantico", "La variable '$identificador' ya existe", fila, columna)
         }
@@ -24,6 +33,7 @@ class InstruccionDeclaracion(
             TiposDato.NUMBER -> 0.0
             TiposDato.STRING -> ""
             TiposDato.BOOLEAN -> false
+            TiposDato.LISTA_STRING -> emptyList<String>()
             TiposDato.NULO -> null
         }
 
