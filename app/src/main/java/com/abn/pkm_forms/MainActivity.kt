@@ -9,6 +9,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Row
@@ -61,6 +62,7 @@ import com.abn.pkm_forms.ui.theme.PKM_FORMSTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.ceil
 
 private const val CODIGO_DEMO = """
 $ Demo inicial
@@ -114,7 +116,7 @@ private val opcionesColor = listOf(
 private val regexComentarios = Regex("\\$[^\\n]*|/\\*([\\s\\S]*?)\\*/")
 private val regexCadenas = Regex("\"([^\"\\\\]|\\\\.)*\"")
 private val regexNumeros = Regex("\\b\\d+(\\.\\d+)?\\b")
-private val regexReservadas = Regex("\\b(SECTION|TABLE|TEXT|OPEN_QUESTION|DROP_QUESTION|SELECT_QUESTION|MULTIPLE_QUESTION|IF|ELSE|WHILE|DO|FOR|in|number|string|true|false)\\b")
+private val regexReservadas = Regex("\\b(SECTION|TABLE|TEXT|OPEN_QUESTION|DROP_QUESTION|SELECT_QUESTION|MULTIPLE_QUESTION|IF|ELSE|WHILE|DO|FOR|in|SPECIAL|DRAW|WHO_IS_THAT_POKEMON|elements|styles|number|string|true|false)\\b")
 private val regexOperadores = Regex("(\\|\\||&&|==|!=|>=|<=|[+\\-*/%~<>]=?|=)")
 
 private val transformacionSintaxis = VisualTransformation { textoOriginal ->
@@ -168,6 +170,27 @@ private fun insertarTextoEnCursor(estadoActual: TextFieldValue, textoInsertar: S
 private data class ResultadoCargaPkm(
     val elementos: List<ElementoFormulario>,
     val errores: List<String>
+)
+
+private data class NodoSerializacionPkm(
+    val profundidad: Int,
+    val elemento: ElementoFormulario
+)
+
+private data class NodoRender(
+    val indice: Int,
+    val nivel: Int,
+    val elemento: ElementoFormulario
+)
+
+private data class CeldaTabla(
+    val nivel: Int,
+    val elemento: ElementoFormulario
+)
+
+private data class NodoLecturaPkm(
+    val profundidad: Int,
+    val elemento: ElementoFormulario
 )
 
 private fun escaparCampoPkm(texto: String): String {
@@ -249,9 +272,26 @@ private fun separarCamposPkm(linea: String): List<String> {
 }
 
 private fun serializarElementosPkm(elementos: List<ElementoFormulario>): String {
+    fun aPlano(
+        lista: List<ElementoFormulario>,
+        profundidad: Int,
+        salida: MutableList<NodoSerializacionPkm>
+    ) {
+        lista.forEach { elemento ->
+            salida.add(NodoSerializacionPkm(profundidad, elemento))
+            if (elemento.elementosAnidados.isNotEmpty()) {
+                aPlano(elemento.elementosAnidados, profundidad + 1, salida)
+            }
+        }
+    }
+
+    val nodos = mutableListOf<NodoSerializacionPkm>()
+    aPlano(elementos, 0, nodos)
+
     return buildString {
         appendLine("PKM_FORMS_V1")
-        elementos.forEach { elemento ->
+        nodos.forEach { nodo ->
+            val elemento = nodo.elemento
             val opciones = elemento.opciones.joinToString(";;") { escaparCampoPkm(it) }
             val indices = elemento.indicesCorrectos.joinToString(",")
             append(elemento.tipo.name)
@@ -269,6 +309,18 @@ private fun serializarElementosPkm(elementos: List<ElementoFormulario>): String 
             append(opciones)
             append('|')
             append(indices)
+            append('|')
+            append(nodo.profundidad)
+            append('|')
+            append(escaparCampoPkm(elemento.estilo.colorTexto ?: ""))
+            append('|')
+            append(escaparCampoPkm(elemento.estilo.colorFondo ?: ""))
+            append('|')
+            append(escaparCampoPkm(elemento.estilo.familiaFuente ?: ""))
+            append('|')
+            append(elemento.estilo.tamanioTexto?.toString() ?: "")
+            append('|')
+            append(escaparCampoPkm(elemento.estilo.borde ?: ""))
             appendLine()
         }
     }
@@ -276,8 +328,9 @@ private fun serializarElementosPkm(elementos: List<ElementoFormulario>): String 
 
 private fun deserializarElementosPkm(contenido: String): ResultadoCargaPkm {
     val lineas = contenido.lines()
-    val elementos = mutableListOf<ElementoFormulario>()
+    val elementosRaiz = mutableListOf<ElementoFormulario>()
     val errores = mutableListOf<String>()
+    val nodosLectura = mutableListOf<NodoLecturaPkm>()
 
     lineas.forEachIndexed { indice, lineaOriginal ->
         val linea = lineaOriginal.trimEnd()
@@ -317,21 +370,92 @@ private fun deserializarElementosPkm(contenido: String): ResultadoCargaPkm {
             ?.mapNotNull { it.trim().toIntOrNull() }
             ?: emptyList()
 
-        elementos.add(
-            ElementoFormulario(
-                tipo = tipo,
-                texto = texto,
-                ancho = ancho,
-                alto = alto,
-                pointX = pointX,
-                pointY = pointY,
-                opciones = opciones,
-                indicesCorrectos = indicesCorrectos
+        val profundidad = campos.getOrNull(8)?.toIntOrNull()?.coerceAtLeast(0) ?: 0
+        val estilo = EstiloFormulario(
+            colorTexto = campos.getOrNull(9)?.takeIf { it.isNotBlank() }?.let { desescaparCampoPkm(it) },
+            colorFondo = campos.getOrNull(10)?.takeIf { it.isNotBlank() }?.let { desescaparCampoPkm(it) },
+            familiaFuente = campos.getOrNull(11)?.takeIf { it.isNotBlank() }?.let { desescaparCampoPkm(it) },
+            tamanioTexto = campos.getOrNull(12)?.toDoubleOrNull(),
+            borde = campos.getOrNull(13)?.takeIf { it.isNotBlank() }?.let { desescaparCampoPkm(it) }
+        )
+
+        nodosLectura.add(
+            NodoLecturaPkm(
+                profundidad = profundidad,
+                elemento = ElementoFormulario(
+                    tipo = tipo,
+                    texto = texto,
+                    ancho = ancho,
+                    alto = alto,
+                    pointX = pointX,
+                    pointY = pointY,
+                    opciones = opciones,
+                    indicesCorrectos = indicesCorrectos,
+                    estilo = estilo
+                )
             )
         )
     }
 
-    return ResultadoCargaPkm(elementos = elementos, errores = errores)
+    fun insertarEnRuta(
+        lista: MutableList<ElementoFormulario>,
+        ruta: List<Int>,
+        nuevo: ElementoFormulario
+    ): MutableList<ElementoFormulario> {
+        if (ruta.isEmpty()) {
+            lista.add(nuevo)
+            return lista
+        }
+
+        val copia = lista.toMutableList()
+        val indiceActual = ruta.first()
+        if (indiceActual !in copia.indices) {
+            copia.add(nuevo)
+            return copia
+        }
+
+        val elementoActual = copia[indiceActual]
+        val hijosActualizados = insertarEnRuta(
+            elementoActual.elementosAnidados.toMutableList(),
+            ruta.drop(1),
+            nuevo
+        )
+        copia[indiceActual] = elementoActual.copy(elementosAnidados = hijosActualizados)
+        return copia
+    }
+
+    val pilaRutas = mutableListOf<List<Int>>()
+    nodosLectura.forEach { nodo ->
+        while (pilaRutas.size > nodo.profundidad) {
+            pilaRutas.removeAt(pilaRutas.lastIndex)
+        }
+
+        if (nodo.profundidad == 0 || pilaRutas.isEmpty()) {
+            elementosRaiz.add(nodo.elemento)
+            val rutaNueva = listOf(elementosRaiz.lastIndex)
+            pilaRutas.add(rutaNueva)
+            return@forEach
+        }
+
+        val rutaPadre = pilaRutas.last()
+        val copiaRaiz = insertarEnRuta(elementosRaiz.toMutableList(), rutaPadre, nodo.elemento)
+        elementosRaiz.clear()
+        elementosRaiz.addAll(copiaRaiz)
+
+        fun obtenerHijosEnRuta(lista: List<ElementoFormulario>, ruta: List<Int>): List<ElementoFormulario> {
+            var elemento = lista[ruta.first()]
+            ruta.drop(1).forEach { indice ->
+                elemento = elemento.elementosAnidados[indice]
+            }
+            return elemento.elementosAnidados
+        }
+
+        val hijosPadre = obtenerHijosEnRuta(elementosRaiz, rutaPadre)
+        val rutaNueva = rutaPadre + (hijosPadre.lastIndex)
+        pilaRutas.add(rutaNueva)
+    }
+
+    return ResultadoCargaPkm(elementos = elementosRaiz, errores = errores)
 }
 
 private suspend fun leerTextoDeUri(contexto: Context, uri: Uri): String {
@@ -381,6 +505,44 @@ private fun esPregunta(tipo: TipoElementoFormulario): Boolean {
         tipo == TipoElementoFormulario.MULTIPLE_QUESTION
 }
 
+private fun aplanarConIndiceGlobal(elementos: List<ElementoFormulario>): List<NodoRender> {
+    val salida = mutableListOf<NodoRender>()
+    var indice = 0
+
+    fun recorrer(lista: List<ElementoFormulario>, nivel: Int) {
+        lista.forEach { elemento ->
+            salida.add(NodoRender(indice = indice, nivel = nivel, elemento = elemento))
+            indice++
+            if (elemento.elementosAnidados.isNotEmpty()) {
+                recorrer(elemento.elementosAnidados, nivel + 1)
+            }
+        }
+    }
+
+    recorrer(elementos, 0)
+    return salida
+}
+
+private fun preguntasConIndiceGlobal(elementos: List<ElementoFormulario>): List<NodoRender> {
+    return aplanarConIndiceGlobal(elementos).filter { esPregunta(it.elemento.tipo) }
+}
+
+private fun extraerCeldasTabla(elementoTabla: ElementoFormulario, nivelContenedor: Int): List<CeldaTabla> {
+    val celdas = mutableListOf<CeldaTabla>()
+
+    fun recorrer(lista: List<ElementoFormulario>, nivel: Int) {
+        lista.forEach { elemento ->
+            celdas.add(CeldaTabla(nivel, elemento))
+            if (elemento.tipo == TipoElementoFormulario.SECTION || elemento.tipo == TipoElementoFormulario.TABLE) {
+                recorrer(elemento.elementosAnidados, nivel + 1)
+            }
+        }
+    }
+
+    recorrer(elementoTabla.elementosAnidados, nivelContenedor + 1)
+    return celdas
+}
+
 private fun validarRespuestaCerrada(elemento: ElementoFormulario, valor: String): Boolean {
     if (elemento.tipo == TipoElementoFormulario.DROP_QUESTION || elemento.tipo == TipoElementoFormulario.SELECT_QUESTION) {
         val indice = valor.toIntOrNull() ?: return false
@@ -415,10 +577,10 @@ private fun corregirRespuestas(
     var cerradasValidas = 0
     val detalleInvalidas = mutableListOf<String>()
 
-    elementos.forEachIndexed { indice, elemento ->
-        if (!esPregunta(elemento.tipo)) {
-            return@forEachIndexed
-        }
+    val preguntas = preguntasConIndiceGlobal(elementos)
+    preguntas.forEach { nodo ->
+        val indice = nodo.indice
+        val elemento = nodo.elemento
 
         totalPreguntas++
         val respuesta = respuestas[indice]?.trim().orEmpty()
@@ -427,7 +589,7 @@ private fun corregirRespuestas(
         }
 
         if (elemento.tipo == TipoElementoFormulario.OPEN_QUESTION || respuesta.isEmpty()) {
-            return@forEachIndexed
+            return@forEach
         }
 
         cerradasCorregibles++
@@ -678,12 +840,8 @@ fun PantallaAnalizadorFormulario(modifier: Modifier = Modifier) {
                         val resultadoNuevo = withContext(Dispatchers.Default) {
                             servicioAnalisis.ejecutar(estadoCodigo.text)
                         }
-                        val inicioNuevos = elementosAcumulados.size
                         resultado = resultadoNuevo
                         elementosAcumulados = elementosAcumulados + resultadoNuevo.elementosFormulario
-                        resultadoNuevo.elementosFormulario.forEachIndexed { indiceLocal, _ ->
-                            respuestasUsuario[inicioNuevos + indiceLocal] = ""
-                        }
                         mensajesEnvio.clear()
                         erroresCargaPkm.clear()
                         resultadoEnvio = null
@@ -716,6 +874,7 @@ fun PantallaAnalizadorFormulario(modifier: Modifier = Modifier) {
             Text("Errores lexicos: ${analisis.erroresLexicos.size}")
             Text("Errores sintacticos: ${analisis.erroresSintacticos.size}")
             Text("Errores semanticos: ${analisis.erroresSemanticos.size}")
+            Text("Advertencias: ${analisis.advertenciasSemanticas.size}")
 
             if (analisis.erroresLexicos.isNotEmpty()) {
                 Text("Detalle lexico:")
@@ -734,6 +893,13 @@ fun PantallaAnalizadorFormulario(modifier: Modifier = Modifier) {
             if (analisis.erroresSemanticos.isNotEmpty()) {
                 Text("Detalle semantico:")
                 analisis.erroresSemanticos.forEach {
+                    Text("- $it")
+                }
+            }
+
+            if (analisis.advertenciasSemanticas.isNotEmpty()) {
+                Text("Detalle advertencias:")
+                analisis.advertenciasSemanticas.forEach {
                     Text("- $it")
                 }
             }
@@ -810,6 +976,14 @@ private fun FormularioRenderizado(
     modoContestar: Boolean,
     respuestas: MutableMap<Int, String>
 ) {
+    val nodos = aplanarConIndiceGlobal(elementos)
+    fun indiceGlobal(elemento: ElementoFormulario): Int {
+        val porReferencia = nodos.indexOfFirst { it.elemento === elemento }
+        if (porReferencia >= 0) return nodos[porReferencia].indice
+        val porIgualdad = nodos.indexOfFirst { it.elemento == elemento }
+        return if (porIgualdad >= 0) nodos[porIgualdad].indice else 0
+    }
+
     @Composable
     fun renderElemento(elemento: ElementoFormulario, indice: Int, nivel: Int) {
         val prefijo = "  ".repeat(nivel)
@@ -823,8 +997,41 @@ private fun FormularioRenderizado(
                             text = "$prefijo$tipo: ${elemento.texto} (w=${elemento.ancho ?: "-"}, h=${elemento.alto ?: "-"}, x=${elemento.pointX ?: "-"}, y=${elemento.pointY ?: "-"})${descripcionEstilo(elemento.estilo)}",
                             style = MaterialTheme.typography.titleSmall
                         )
-                        elemento.elementosAnidados.forEachIndexed { idx, hijo ->
-                            renderElemento(hijo, indice * 1000 + idx + 1, nivel + 1)
+
+                        if (elemento.tipo == TipoElementoFormulario.TABLE) {
+                            val celdas = extraerCeldasTabla(elemento, nivel)
+                            if (celdas.isNotEmpty()) {
+                                val columnas = if (celdas.size <= 2) celdas.size else 3
+                                val filas = ceil(celdas.size.toDouble() / columnas.toDouble()).toInt()
+                                Text("${prefijo}Grid: $filas x $columnas")
+
+                                val celdasEnFilas = celdas.chunked(columnas)
+                                celdasEnFilas.forEach { filaCeldas ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        repeat(columnas) { indiceColumna ->
+                                            Box(modifier = Modifier.weight(1f)) {
+                                                val celda = filaCeldas.getOrNull(indiceColumna)
+                                                if (celda != null) {
+                                                    Card(modifier = Modifier.fillMaxWidth()) {
+                                                        Column(modifier = Modifier.padding(8.dp)) {
+                                                            renderElemento(celda.elemento, indiceGlobal(celda.elemento), celda.nivel)
+                                                        }
+                                                    }
+                                                } else {
+                                                    Spacer(modifier = Modifier.height(1.dp))
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            elemento.elementosAnidados.forEach { hijo ->
+                                renderElemento(hijo, indiceGlobal(hijo), nivel + 1)
+                            }
                         }
                     }
                 }
@@ -887,8 +1094,10 @@ private fun FormularioRenderizado(
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        elementos.forEachIndexed { indice, elemento ->
-            renderElemento(elemento, indice, 0)
+        nodos.forEach { nodo ->
+            if (nodo.nivel == 0) {
+                renderElemento(nodo.elemento, nodo.indice, nodo.nivel)
+            }
         }
     }
 }
