@@ -81,10 +81,11 @@ fun PantallaAnalizadorFormulario(modifier: Modifier = Modifier) {
     var codigoFuente by remember { mutableStateOf(CODIGO_DEMO) } // DEMO: comentar esta linea para APK limpia
     var ejecutando by remember { mutableStateOf(false) }
     var resultado by remember { mutableStateOf<ResultadoAnalisisFormulario?>(null) }
+    var elementosAcumulados by remember { mutableStateOf<List<ElementoFormulario>>(emptyList()) }
     var modoContestar by remember { mutableStateOf(false) }
 
-    LaunchedEffect(resultado) {
-        if ((resultado?.elementosFormulario?.isEmpty() ?: true)) {
+    LaunchedEffect(elementosAcumulados) {
+        if (elementosAcumulados.isEmpty()) {
             modoContestar = false
         }
     }
@@ -113,18 +114,37 @@ fun PantallaAnalizadorFormulario(modifier: Modifier = Modifier) {
                 onClick = {
                     alcanceCorrutina.launch {
                         ejecutando = true
-                        resultado = withContext(Dispatchers.Default) {
+                        val resultadoNuevo = withContext(Dispatchers.Default) {
                             servicioAnalisis.ejecutar(codigoFuente)
                         }
+                        resultado = resultadoNuevo
+                        elementosAcumulados = resultadoNuevo.elementosFormulario
                         ejecutando = false
                     }
                 },
                 enabled = !ejecutando
             ) {
-                Text("Ejecutar")
+                Text("Ejecutar (reemplazar)")
             }
 
-            if (resultado?.elementosFormulario?.isNotEmpty() == true) {
+            Button(
+                onClick = {
+                    alcanceCorrutina.launch {
+                        ejecutando = true
+                        val resultadoNuevo = withContext(Dispatchers.Default) {
+                            servicioAnalisis.ejecutar(codigoFuente)
+                        }
+                        resultado = resultadoNuevo
+                        elementosAcumulados = elementosAcumulados + resultadoNuevo.elementosFormulario
+                        ejecutando = false
+                    }
+                },
+                enabled = !ejecutando
+            ) {
+                Text("Agregar")
+            }
+
+            if (elementosAcumulados.isNotEmpty()) {
                 Button(onClick = { modoContestar = !modoContestar }) {
                     Text(if (modoContestar) "Ver formulario" else "Contestar")
                 }
@@ -163,14 +183,14 @@ fun PantallaAnalizadorFormulario(modifier: Modifier = Modifier) {
                 }
             }
 
-            if (analisis.elementosFormulario.isNotEmpty()) {
+            if (elementosAcumulados.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = if (modoContestar) "Modo contestar" else "Formulario renderizado",
                     style = MaterialTheme.typography.titleMedium
                 )
                 FormularioRenderizado(
-                    elementos = analisis.elementosFormulario,
+                    elementos = elementosAcumulados,
                     modoContestar = modoContestar
                 )
                 if (modoContestar) {
