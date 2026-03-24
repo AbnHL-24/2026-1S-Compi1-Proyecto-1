@@ -2,6 +2,7 @@ package com.abn.pkm_forms.analisis
 
 import com.abn.pkm_forms.interprete.abstracto.Instruccion
 import com.abn.pkm_forms.interprete.EjecutorFormulario
+import com.abn.pkm_forms.interprete.simbolo.ElementoFormulario
 import java.io.StringReader
 import java_cup.runtime.Symbol
 
@@ -10,7 +11,8 @@ data class ResultadoAnalisisFormulario(
     val cantidadInstrucciones: Int,
     val erroresLexicos: List<ErrorLexico>,
     val erroresSintacticos: List<ErrorSintactico>,
-    val erroresSemanticos: List<String>
+    val erroresSemanticos: List<String>,
+    val elementosFormulario: List<ElementoFormulario>
 )
 
 class ServicioAnalisisFormulario {
@@ -31,14 +33,15 @@ class ServicioAnalisisFormulario {
         }
 
         val ejecutor = EjecutorFormulario()
-        val erroresSemanticos = ejecutor.ejecutar(instrucciones)
+        val resultadoEjecucion = ejecutor.ejecutar(instrucciones)
 
         return ResultadoAnalisisFormulario(
             cantidadTokens = cantidadTokens,
             cantidadInstrucciones = instrucciones.size,
             erroresLexicos = scanner.erroresLexicos,
             erroresSintacticos = parser.erroresSintacticos,
-            erroresSemanticos = erroresSemanticos
+            erroresSemanticos = resultadoEjecucion.erroresSemanticos,
+            elementosFormulario = resultadoEjecucion.elementosFormulario
         )
     }
 
