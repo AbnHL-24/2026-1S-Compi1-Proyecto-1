@@ -1,9 +1,13 @@
 package com.abn.pkm_forms
 
+import android.content.Context
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -35,6 +39,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextRange
@@ -147,6 +152,120 @@ private fun insertarTextoEnCursor(estadoActual: TextFieldValue, textoInsertar: S
     return estadoActual.copy(text = textoNuevo, selection = TextRange(cursorNuevo, cursorNuevo))
 }
 
+private data class ResultadoCargaPkm(
+    val elementos: List<ElementoFormulario>,
+    val errores: List<String>
+)
+
+private fun escaparCampoPkm(texto: String): String {
+    return texto
+        .replace("\\", "\\\\")
+        .replace("|", "\\|")
+        .replace("\n", "\\n")
+}
+
+private fun desescaparCampoPkm(texto: String): String {
+    val salida = StringBuilder()
+    var indice = 0
+    while (indice < texto.length) {
+        val actual = texto[indice]
+        if (actual == '\\' && indice + 1 < texto.length) {
+            val siguiente = texto[indice + 1]
+            when (siguiente) {
+                'n' -> salida.append('\n')
+                '\\' -> salida.append('\\')
+                '|' -> salida.append('|')
+                else -> salida.append(siguiente)
+            }
+            indice += 2
+        } else {
+            salida.append(actual)
+            indice++
+        }
+    }
+    return salida.toString()
+}
+
+private fun encontrarSeparadorPkm(linea: String): Int {
+    var escapado = false
+    linea.forEachIndexed { indice, caracter ->
+        if (escapado) {
+            escapado = false
+            return@forEachIndexed
+        }
+        if (caracter == '\\') {
+            escapado = true
+            return@forEachIndexed
+        }
+        if (caracter == '|') {
+            return indice
+        }
+    }
+    return -1
+}
+
+private fun serializarElementosPkm(elementos: List<ElementoFormulario>): String {
+    return buildString {
+        appendLine("PKM_FORMS_V1")
+        elementos.forEach { elemento ->
+            append(elemento.tipo.name)
+            append('|')
+            append(escaparCampoPkm(elemento.texto))
+            appendLine()
+        }
+    }
+}
+
+private fun deserializarElementosPkm(contenido: String): ResultadoCargaPkm {
+    val lineas = contenido.lines()
+    val elementos = mutableListOf<ElementoFormulario>()
+    val errores = mutableListOf<String>()
+
+    lineas.forEachIndexed { indice, lineaOriginal ->
+        val linea = lineaOriginal.trimEnd()
+        if (linea.isBlank()) {
+            return@forEachIndexed
+        }
+        if (indice == 0 && linea == "PKM_FORMS_V1") {
+            return@forEachIndexed
+        }
+
+        val posicionSeparador = encontrarSeparadorPkm(linea)
+        if (posicionSeparador <= 0) {
+            errores.add("Linea ${indice + 1} invalida en .pkm")
+            return@forEachIndexed
+        }
+
+        val tipoTexto = linea.substring(0, posicionSeparador)
+        val contenidoTexto = linea.substring(posicionSeparador + 1)
+        val tipo = runCatching { TipoElementoFormulario.valueOf(tipoTexto) }.getOrNull()
+        if (tipo == null) {
+            errores.add("Linea ${indice + 1} con tipo desconocido: $tipoTexto")
+            return@forEachIndexed
+        }
+
+        elementos.add(ElementoFormulario(tipo, desescaparCampoPkm(contenidoTexto)))
+    }
+
+    return ResultadoCargaPkm(elementos = elementos, errores = errores)
+}
+
+private suspend fun leerTextoDeUri(contexto: Context, uri: Uri): String {
+    return withContext(Dispatchers.IO) {
+        val flujo = contexto.contentResolver.openInputStream(uri)
+            ?: throw IllegalStateException("No se pudo abrir archivo")
+        flujo.bufferedReader().use { it.readText() }
+    }
+}
+
+private suspend fun escribirTextoEnUri(contexto: Context, uri: Uri, contenido: String) {
+    withContext(Dispatchers.IO) {
+        val flujo = contexto.contentResolver.openOutputStream(uri)
+            ?: throw IllegalStateException("No se pudo abrir destino")
+        flujo.bufferedWriter().use { it.write(contenido) }
+    }
+}
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -254,6 +373,7 @@ private fun corregirRespuestas(
 fun PantallaAnalizadorFormulario(modifier: Modifier = Modifier) {
     val servicioAnalisis = remember { ServicioAnalisisFormulario() }
     val alcanceCorrutina = rememberCoroutineScope()
+    val contexto = LocalContext.current
     var estadoCodigo by remember { mutableStateOf(TextFieldValue(CODIGO_DEMO)) } // DEMO: comentar esta linea para APK limpia
     var ejecutando by remember { mutableStateOf(false) }
     var resultado by remember { mutableStateOf<ResultadoAnalisisFormulario?>(null) }
@@ -262,7 +382,84 @@ fun PantallaAnalizadorFormulario(modifier: Modifier = Modifier) {
     var menuColorAbierto by remember { mutableStateOf(false) }
     val respuestasUsuario = remember { mutableStateMapOf<Int, String>() }
     val mensajesEnvio = remember { mutableStateListOf<String>() }
+    val erroresCargaPkm = remember { mutableStateListOf<String>() }
     var resultadoEnvio by remember { mutableStateOf<ResultadoEnvioFormulario?>(null) }
+    var mensajeArchivo by remember { mutableStateOf("") }
+
+    val lanzadorGuardarForm = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("text/plain")
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        alcanceCorrutina.launch {
+            runCatching {
+                escribirTextoEnUri(contexto, uri, estadoCodigo.text)
+            }.onSuccess {
+                mensajeArchivo = "Archivo .form guardado."
+            }.onFailure {
+                mensajeArchivo = "Error al guardar .form: ${it.message ?: "desconocido"}"
+            }
+        }
+    }
+
+    val lanzadorAbrirForm = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        alcanceCorrutina.launch {
+            runCatching {
+                leerTextoDeUri(contexto, uri)
+            }.onSuccess { contenido ->
+                estadoCodigo = TextFieldValue(contenido, TextRange(contenido.length))
+                mensajeArchivo = "Archivo .form cargado."
+            }.onFailure {
+                mensajeArchivo = "Error al abrir .form: ${it.message ?: "desconocido"}"
+            }
+        }
+    }
+
+    val lanzadorGuardarPkm = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/octet-stream")
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        alcanceCorrutina.launch {
+            runCatching {
+                val contenidoPkm = serializarElementosPkm(elementosAcumulados)
+                escribirTextoEnUri(contexto, uri, contenidoPkm)
+            }.onSuccess {
+                mensajeArchivo = "Archivo .pkm guardado."
+            }.onFailure {
+                mensajeArchivo = "Error al guardar .pkm: ${it.message ?: "desconocido"}"
+            }
+        }
+    }
+
+    val lanzadorAbrirPkm = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        alcanceCorrutina.launch {
+            runCatching {
+                val contenido = leerTextoDeUri(contexto, uri)
+                deserializarElementosPkm(contenido)
+            }.onSuccess { carga ->
+                resultado = null
+                elementosAcumulados = carga.elementos
+                modoContestar = false
+                respuestasUsuario.clear()
+                mensajesEnvio.clear()
+                resultadoEnvio = null
+                erroresCargaPkm.clear()
+                erroresCargaPkm.addAll(carga.errores)
+                mensajeArchivo = if (carga.errores.isEmpty()) {
+                    "Archivo .pkm cargado: ${carga.elementos.size} elementos."
+                } else {
+                    "Archivo .pkm cargado con ${carga.errores.size} lineas omitidas."
+                }
+            }.onFailure {
+                mensajeArchivo = "Error al abrir .pkm: ${it.message ?: "desconocido"}"
+            }
+        }
+    }
 
     LaunchedEffect(elementosAcumulados) {
         if (elementosAcumulados.isEmpty()) {
@@ -309,6 +506,30 @@ fun PantallaAnalizadorFormulario(modifier: Modifier = Modifier) {
                 Text("Selector de colores")
             }
 
+            Button(onClick = { lanzadorGuardarForm.launch("formulario.form") }) {
+                Text("Guardar .form")
+            }
+
+            Button(onClick = { lanzadorAbrirForm.launch(arrayOf("text/*", "application/octet-stream")) }) {
+                Text("Abrir .form")
+            }
+
+            Button(
+                onClick = {
+                    if (elementosAcumulados.isNotEmpty()) {
+                        lanzadorGuardarPkm.launch("formulario.pkm")
+                    } else {
+                        mensajeArchivo = "Ejecuta o carga un formulario antes de guardar .pkm."
+                    }
+                }
+            ) {
+                Text("Guardar .pkm")
+            }
+
+            Button(onClick = { lanzadorAbrirPkm.launch(arrayOf("text/*", "application/octet-stream")) }) {
+                Text("Abrir .pkm")
+            }
+
             DropdownMenu(
                 expanded = menuColorAbierto,
                 onDismissRequest = { menuColorAbierto = false }
@@ -340,6 +561,7 @@ fun PantallaAnalizadorFormulario(modifier: Modifier = Modifier) {
                         elementosAcumulados = resultadoNuevo.elementosFormulario
                         respuestasUsuario.clear()
                         mensajesEnvio.clear()
+                        erroresCargaPkm.clear()
                         resultadoEnvio = null
                         ejecutando = false
                     }
@@ -363,6 +585,7 @@ fun PantallaAnalizadorFormulario(modifier: Modifier = Modifier) {
                             respuestasUsuario[inicioNuevos + indiceLocal] = ""
                         }
                         mensajesEnvio.clear()
+                        erroresCargaPkm.clear()
                         resultadoEnvio = null
                         ejecutando = false
                     }
@@ -381,6 +604,10 @@ fun PantallaAnalizadorFormulario(modifier: Modifier = Modifier) {
             if (ejecutando) {
                 CircularProgressIndicator(modifier = Modifier.padding(top = 8.dp))
             }
+        }
+
+        if (mensajeArchivo.isNotEmpty()) {
+            Text(mensajeArchivo)
         }
 
         resultado?.let { analisis ->
@@ -410,58 +637,65 @@ fun PantallaAnalizadorFormulario(modifier: Modifier = Modifier) {
                     Text("- $it")
                 }
             }
+        }
 
-            if (elementosAcumulados.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = if (modoContestar) "Modo contestar" else "Formulario renderizado",
-                    style = MaterialTheme.typography.titleMedium
-                )
-                FormularioRenderizado(
-                    elementos = elementosAcumulados,
-                    modoContestar = modoContestar,
-                    respuestas = respuestasUsuario
-                )
-                if (modoContestar) {
-                    TextButton(
-                        onClick = {
-                            val correccion = corregirRespuestas(elementosAcumulados, respuestasUsuario)
-                            resultadoEnvio = correccion
-                            mensajesEnvio.clear()
-                            if (correccion.totalPreguntas == 0) {
-                                mensajesEnvio.add("No hay preguntas para enviar.")
-                            } else {
-                                mensajesEnvio.add("Formulario enviado.")
-                                if (correccion.sinResponder > 0) {
-                                    mensajesEnvio.add("Faltan ${correccion.sinResponder} respuestas por completar.")
-                                }
-                                if (correccion.cerradasCorregibles > 0) {
-                                    mensajesEnvio.add(
-                                        "Correccion cerradas: ${correccion.cerradasValidas}/${correccion.cerradasCorregibles} validas."
-                                    )
-                                    if (correccion.cerradasInvalidas > 0) {
-                                        mensajesEnvio.add("Usa indices desde 0 en preguntas cerradas.")
-                                    }
+        if (erroresCargaPkm.isNotEmpty()) {
+            Text("Detalle .pkm omitido:")
+            erroresCargaPkm.forEach {
+                Text("- $it")
+            }
+        }
+
+        if (elementosAcumulados.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = if (modoContestar) "Modo contestar" else "Formulario renderizado",
+                style = MaterialTheme.typography.titleMedium
+            )
+            FormularioRenderizado(
+                elementos = elementosAcumulados,
+                modoContestar = modoContestar,
+                respuestas = respuestasUsuario
+            )
+            if (modoContestar) {
+                TextButton(
+                    onClick = {
+                        val correccion = corregirRespuestas(elementosAcumulados, respuestasUsuario)
+                        resultadoEnvio = correccion
+                        mensajesEnvio.clear()
+                        if (correccion.totalPreguntas == 0) {
+                            mensajesEnvio.add("No hay preguntas para enviar.")
+                        } else {
+                            mensajesEnvio.add("Formulario enviado.")
+                            if (correccion.sinResponder > 0) {
+                                mensajesEnvio.add("Faltan ${correccion.sinResponder} respuestas por completar.")
+                            }
+                            if (correccion.cerradasCorregibles > 0) {
+                                mensajesEnvio.add(
+                                    "Correccion cerradas: ${correccion.cerradasValidas}/${correccion.cerradasCorregibles} validas."
+                                )
+                                if (correccion.cerradasInvalidas > 0) {
+                                    mensajesEnvio.add("Usa indices desde 0 en preguntas cerradas.")
                                 }
                             }
                         }
-                    ) {
-                        Text("Enviar")
                     }
+                ) {
+                    Text("Enviar")
+                }
 
-                    if (mensajesEnvio.isNotEmpty()) {
-                        mensajesEnvio.forEach { mensaje ->
-                            Text(mensaje)
-                        }
+                if (mensajesEnvio.isNotEmpty()) {
+                    mensajesEnvio.forEach { mensaje ->
+                        Text(mensaje)
                     }
+                }
 
-                    resultadoEnvio?.let { envio ->
-                        Text("Resumen envio: ${envio.respondidas}/${envio.totalPreguntas} respondidas")
-                        if (envio.detalleInvalidas.isNotEmpty()) {
-                            Text("Detalle respuestas cerradas invalidas:")
-                            envio.detalleInvalidas.forEach {
-                                Text("- $it")
-                            }
+                resultadoEnvio?.let { envio ->
+                    Text("Resumen envio: ${envio.respondidas}/${envio.totalPreguntas} respondidas")
+                    if (envio.detalleInvalidas.isNotEmpty()) {
+                        Text("Detalle respuestas cerradas invalidas:")
+                        envio.detalleInvalidas.forEach {
+                            Text("- $it")
                         }
                     }
                 }
