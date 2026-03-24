@@ -8,7 +8,7 @@ import com.abn.pkm_forms.interprete.simbolo.ElementoFormulario
 import com.abn.pkm_forms.interprete.simbolo.TablaSimbolos
 import com.abn.pkm_forms.interprete.simbolo.TipoElementoFormulario
 
-class InstruccionSection(
+class InstruccionTable(
     private val texto: Expresion,
     private val ancho: Expresion?,
     private val alto: Expresion?,
@@ -63,7 +63,7 @@ class InstruccionSection(
 
         arbol.agregarElemento(
             ElementoFormulario(
-                tipo = TipoElementoFormulario.SECTION,
+                tipo = TipoElementoFormulario.TABLE,
                 texto = textoResuelto.orEmpty(),
                 ancho = anchoResuelto,
                 alto = altoResuelto,

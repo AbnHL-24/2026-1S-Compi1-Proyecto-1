@@ -12,6 +12,11 @@ class InstruccionOpenQuestion(
     private val etiqueta: Expresion,
     private val ancho: Expresion?,
     private val alto: Expresion?,
+    private val colorTexto: Expresion?,
+    private val colorFondo: Expresion?,
+    private val fuente: Expresion?,
+    private val tamanioTexto: Expresion?,
+    private val borde: Expresion?,
     fila: Int,
     columna: Int
 ) : Instruccion(fila, columna) {
@@ -24,12 +29,26 @@ class InstruccionOpenQuestion(
         val (altoResuelto, errorAlto) = resolverNumeroNoNegativo(alto, arbol, tabla, "height", fila, columna)
         if (errorAlto != null) return errorAlto
 
+        val (estiloResuelto, errorEstilo) = resolverEstiloDesdeExpresiones(
+            colorTexto,
+            colorFondo,
+            fuente,
+            tamanioTexto,
+            borde,
+            arbol,
+            tabla,
+            fila,
+            columna
+        )
+        if (errorEstilo != null) return errorEstilo
+
         arbol.agregarElemento(
             ElementoFormulario(
                 tipo = TipoElementoFormulario.OPEN_QUESTION,
                 texto = textoResuelto.orEmpty(),
                 ancho = anchoResuelto,
-                alto = altoResuelto
+                alto = altoResuelto,
+                estilo = estiloResuelto
             )
         )
         return null

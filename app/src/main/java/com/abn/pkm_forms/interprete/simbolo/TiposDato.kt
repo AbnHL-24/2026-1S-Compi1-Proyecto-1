@@ -4,5 +4,6 @@ enum class TiposDato {
     NUMBER,
     STRING,
     BOOLEAN,
+    LISTA_STRING,
     NULO
 }

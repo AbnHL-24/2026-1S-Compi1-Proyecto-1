@@ -4,6 +4,7 @@ import com.abn.pkm_forms.interprete.abstracto.Expresion
 import com.abn.pkm_forms.interprete.abstracto.ResultadoExpresion
 import com.abn.pkm_forms.interprete.excepciones.ErrorInterpretacion
 import com.abn.pkm_forms.interprete.simbolo.Arbol
+import com.abn.pkm_forms.interprete.simbolo.EstiloFormulario
 import com.abn.pkm_forms.interprete.simbolo.TablaSimbolos
 import com.abn.pkm_forms.interprete.simbolo.TiposDato
 
@@ -127,4 +128,64 @@ internal fun resolverIndicesCorrectos(
     }
 
     return Pair(indices, null)
+}
+
+internal fun resolverEstilo(
+    atributos: Map<String, Expresion>,
+    arbol: Arbol,
+    tabla: TablaSimbolos,
+    fila: Int,
+    columna: Int
+): Pair<EstiloFormulario, ErrorInterpretacion?> {
+    fun texto(nombre: String): Pair<String?, ErrorInterpretacion?> {
+        val expresion = atributos[nombre] ?: return Pair(null, null)
+        return resolverTexto(expresion, arbol, tabla, nombre, fila, columna)
+    }
+
+    fun numero(nombre: String): Pair<Double?, ErrorInterpretacion?> {
+        val expresion = atributos[nombre] ?: return Pair(null, null)
+        return resolverNumeroNoNegativo(expresion, arbol, tabla, nombre, fila, columna)
+    }
+
+    val (colorTexto, errorColorTexto) = texto("style_color")
+    if (errorColorTexto != null) return Pair(EstiloFormulario(), errorColorTexto)
+    val (colorFondo, errorColorFondo) = texto("style_background")
+    if (errorColorFondo != null) return Pair(EstiloFormulario(), errorColorFondo)
+    val (fuente, errorFuente) = texto("style_font")
+    if (errorFuente != null) return Pair(EstiloFormulario(), errorFuente)
+    val (tamanio, errorTamanio) = numero("style_text_size")
+    if (errorTamanio != null) return Pair(EstiloFormulario(), errorTamanio)
+    val (borde, errorBorde) = texto("style_border")
+    if (errorBorde != null) return Pair(EstiloFormulario(), errorBorde)
+
+    return Pair(
+        EstiloFormulario(
+            colorTexto = colorTexto,
+            colorFondo = colorFondo,
+            familiaFuente = fuente,
+            tamanioTexto = tamanio,
+            borde = borde
+        ),
+        null
+    )
+}
+
+internal fun resolverEstiloDesdeExpresiones(
+    colorTextoExp: Expresion?,
+    colorFondoExp: Expresion?,
+    fuenteExp: Expresion?,
+    tamanioExp: Expresion?,
+    bordeExp: Expresion?,
+    arbol: Arbol,
+    tabla: TablaSimbolos,
+    fila: Int,
+    columna: Int
+): Pair<EstiloFormulario, ErrorInterpretacion?> {
+    val atributos = mutableMapOf<String, Expresion>()
+    if (colorTextoExp != null) atributos["style_color"] = colorTextoExp
+    if (colorFondoExp != null) atributos["style_background"] = colorFondoExp
+    if (fuenteExp != null) atributos["style_font"] = fuenteExp
+    if (tamanioExp != null) atributos["style_text_size"] = tamanioExp
+    if (bordeExp != null) atributos["style_border"] = bordeExp
+    return resolverEstilo(atributos, arbol, tabla, fila, columna)
 }
