@@ -1,0 +1,62 @@
+package com.abn.pkm_forms.analisis;
+
+import java_cup.runtime.Symbol;
+import java.util.LinkedList;
+import com.abn.pkm_forms.interprete.abstracto.Instruccion;
+import com.abn.pkm_forms.interprete.instrucciones.InstruccionNop;
+
+parser code
+{:
+    public LinkedList<ErrorSintactico> erroresSintacticos = new LinkedList<>();
+
+    @Override
+    public void syntax_error(Symbol simbolo) {
+        erroresSintacticos.add(new ErrorSintactico(
+            "No se esperaba el componente " + simbolo.value,
+            simbolo.left,
+            simbolo.right
+        ));
+    }
+
+    @Override
+    public void unrecovered_syntax_error(Symbol simbolo) throws Exception {
+        erroresSintacticos.add(new ErrorSintactico(
+            "No se pudo recuperar del componente " + simbolo.value,
+            simbolo.left,
+            simbolo.right
+        ));
+    }
+:}
+
+terminal String ID, CADENA, ENTERO;
+terminal SECTION, TEXT, OPEN_QUESTION, DROP_QUESTION, SELECT_QUESTION, MULTIPLE_QUESTION;
+terminal NUMBER, STRING, TRUE, FALSE;
+terminal MAS, MENOS, MULT, DIV, MOD, NOT, OR, AND;
+terminal IGUALDAD, DIFERENTE, MAYOR, MENOR, MAYOR_IGUAL, MENOR_IGUAL;
+terminal ASIGNACION, PUNTO_Y_COMA, DOS_PUNTOS, COMA, PARENTESIS_IZQ, PARENTESIS_DER, LLAVE_IZQ, LLAVE_DER;
+
+non terminal LinkedList<Instruccion> INICIO, INSTRUCCIONES;
+non terminal Instruccion INSTRUCCION;
+
+precedence left OR;
+precedence left AND;
+precedence right NOT;
+precedence left IGUALDAD, DIFERENTE, MENOR, MENOR_IGUAL, MAYOR, MAYOR_IGUAL;
+precedence left MAS, MENOS;
+precedence left MULT, DIV, MOD;
+
+start with INICIO;
+
+INICIO ::= INSTRUCCIONES:a {: RESULT = a; :}
+;
+
+INSTRUCCIONES ::= INSTRUCCIONES:a INSTRUCCION:b {: RESULT = a; RESULT.add(b); :}
+                | INSTRUCCION:a {: RESULT = new LinkedList<Instruccion>(); RESULT.add(a); :}
+;
+
+INSTRUCCION ::= ID:a ASIGNACION ENTERO PUNTO_Y_COMA {: RESULT = new InstruccionNop(aleft, aright); :}
+              | ID:a ASIGNACION CADENA PUNTO_Y_COMA {: RESULT = new InstruccionNop(aleft, aright); :}
+              | SECTION:a ID PUNTO_Y_COMA {: RESULT = new InstruccionNop(aleft, aright); :}
+              | TEXT:a ID PUNTO_Y_COMA {: RESULT = new InstruccionNop(aleft, aright); :}
+              | error:a PUNTO_Y_COMA {: RESULT = new InstruccionNop(aleft, aright); :}
+;
