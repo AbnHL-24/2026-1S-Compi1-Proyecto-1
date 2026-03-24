@@ -13,11 +13,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -26,11 +29,21 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.OffsetMapping
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.input.TransformedText
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.tooling.preview.Preview
@@ -60,6 +73,80 @@ MULTIPLE_QUESTION "Selecciona multiples";
 edad = total - 1;
 """
 
+private const val PLANTILLA_BASE = """
+$ Plantilla base
+number edad = 18;
+string nombre = "Misty";
+SECTION "Datos";
+TEXT "Bienvenido";
+OPEN_QUESTION "Cual es tu pokemon favorito?";
+DROP_QUESTION "Elige tipo";
+SELECT_QUESTION "Elige una opcion";
+MULTIPLE_QUESTION "Selecciona multiples";
+"""
+
+private val opcionesColor = listOf(
+    "Rojo" to "#E53935",
+    "Azul" to "#1E88E5",
+    "Verde" to "#43A047",
+    "Naranja" to "#FB8C00",
+    "Negro" to "#212121"
+)
+
+private val regexComentarios = Regex("\\$[^\\n]*|/\\*([\\s\\S]*?)\\*/")
+private val regexCadenas = Regex("\"([^\"\\\\]|\\\\.)*\"")
+private val regexNumeros = Regex("\\b\\d+(\\.\\d+)?\\b")
+private val regexReservadas = Regex("\\b(SECTION|TEXT|OPEN_QUESTION|DROP_QUESTION|SELECT_QUESTION|MULTIPLE_QUESTION|number|string|true|false)\\b")
+private val regexOperadores = Regex("(\\|\\||&&|==|!=|>=|<=|[+\\-*/%~<>]=?|=)")
+
+private val transformacionSintaxis = VisualTransformation { textoOriginal ->
+    val textoPlano = textoOriginal.text
+    val textoColoreado = runCatching {
+        buildAnnotatedString {
+            append(textoPlano)
+
+            regexComentarios.findAll(textoPlano).forEach {
+                addStyle(SpanStyle(color = Color(0xFF2E7D32)), it.range.first, it.range.last + 1)
+            }
+            regexCadenas.findAll(textoPlano).forEach {
+                addStyle(SpanStyle(color = Color(0xFF6A1B9A)), it.range.first, it.range.last + 1)
+            }
+            regexNumeros.findAll(textoPlano).forEach {
+                addStyle(SpanStyle(color = Color(0xFF1565C0)), it.range.first, it.range.last + 1)
+            }
+            regexReservadas.findAll(textoPlano).forEach {
+                addStyle(
+                    SpanStyle(color = Color(0xFFEF6C00), fontWeight = FontWeight.SemiBold),
+                    it.range.first,
+                    it.range.last + 1
+                )
+            }
+            regexOperadores.findAll(textoPlano).forEach {
+                addStyle(
+                    SpanStyle(color = Color(0xFFC62828), fontWeight = FontWeight.Medium),
+                    it.range.first,
+                    it.range.last + 1
+                )
+            }
+        }
+    }.getOrElse {
+        buildAnnotatedString { append(textoPlano) }
+    }
+
+    TransformedText(textoColoreado, OffsetMapping.Identity)
+}
+
+private fun insertarTextoEnCursor(estadoActual: TextFieldValue, textoInsertar: String): TextFieldValue {
+    val largo = estadoActual.text.length
+    val inicioSeleccion = estadoActual.selection.start.coerceIn(0, largo)
+    val finSeleccion = estadoActual.selection.end.coerceIn(0, largo)
+    val inicio = minOf(inicioSeleccion, finSeleccion)
+    val fin = maxOf(inicioSeleccion, finSeleccion)
+    val textoNuevo = estadoActual.text.replaceRange(inicio, fin, textoInsertar)
+    val cursorNuevo = inicio + textoInsertar.length
+    return estadoActual.copy(text = textoNuevo, selection = TextRange(cursorNuevo, cursorNuevo))
+}
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -74,15 +161,108 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+private data class ResultadoEnvioFormulario(
+    val totalPreguntas: Int,
+    val respondidas: Int,
+    val sinResponder: Int,
+    val cerradasCorregibles: Int,
+    val cerradasValidas: Int,
+    val cerradasInvalidas: Int,
+    val detalleInvalidas: List<String>
+)
+
+private fun esPregunta(tipo: TipoElementoFormulario): Boolean {
+    return tipo == TipoElementoFormulario.OPEN_QUESTION ||
+        tipo == TipoElementoFormulario.DROP_QUESTION ||
+        tipo == TipoElementoFormulario.SELECT_QUESTION ||
+        tipo == TipoElementoFormulario.MULTIPLE_QUESTION
+}
+
+private fun validarRespuestaCerrada(tipo: TipoElementoFormulario, valor: String): Boolean {
+    if (tipo == TipoElementoFormulario.DROP_QUESTION || tipo == TipoElementoFormulario.SELECT_QUESTION) {
+        val indice = valor.toIntOrNull() ?: return false
+        return indice >= 0
+    }
+
+    if (tipo == TipoElementoFormulario.MULTIPLE_QUESTION) {
+        val partes = valor.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+        if (partes.isEmpty()) return false
+        return partes.all {
+            val indice = it.toIntOrNull() ?: return@all false
+            indice >= 0
+        }
+    }
+
+    return false
+}
+
+private fun corregirRespuestas(
+    elementos: List<ElementoFormulario>,
+    respuestas: Map<Int, String>
+): ResultadoEnvioFormulario {
+    var totalPreguntas = 0
+    var respondidas = 0
+    var cerradasCorregibles = 0
+    var cerradasValidas = 0
+    val detalleInvalidas = mutableListOf<String>()
+
+    elementos.forEachIndexed { indice, elemento ->
+        if (!esPregunta(elemento.tipo)) {
+            return@forEachIndexed
+        }
+
+        totalPreguntas++
+        val respuesta = respuestas[indice]?.trim().orEmpty()
+        if (respuesta.isNotEmpty()) {
+            respondidas++
+        }
+
+        if (elemento.tipo == TipoElementoFormulario.OPEN_QUESTION || respuesta.isEmpty()) {
+            return@forEachIndexed
+        }
+
+        cerradasCorregibles++
+        val esValida = validarRespuestaCerrada(elemento.tipo, respuesta)
+        if (esValida) {
+            cerradasValidas++
+        } else {
+            val etiqueta = when (elemento.tipo) {
+                TipoElementoFormulario.DROP_QUESTION -> "DROP"
+                TipoElementoFormulario.SELECT_QUESTION -> "SELECT"
+                TipoElementoFormulario.MULTIPLE_QUESTION -> "MULTIPLE"
+                else -> ""
+            }
+            detalleInvalidas.add("$etiqueta '${elemento.texto}' -> '$respuesta'")
+        }
+    }
+
+    val sinResponder = totalPreguntas - respondidas
+    val cerradasInvalidas = cerradasCorregibles - cerradasValidas
+
+    return ResultadoEnvioFormulario(
+        totalPreguntas = totalPreguntas,
+        respondidas = respondidas,
+        sinResponder = sinResponder,
+        cerradasCorregibles = cerradasCorregibles,
+        cerradasValidas = cerradasValidas,
+        cerradasInvalidas = cerradasInvalidas,
+        detalleInvalidas = detalleInvalidas
+    )
+}
+
 @Composable
 fun PantallaAnalizadorFormulario(modifier: Modifier = Modifier) {
     val servicioAnalisis = remember { ServicioAnalisisFormulario() }
     val alcanceCorrutina = rememberCoroutineScope()
-    var codigoFuente by remember { mutableStateOf(CODIGO_DEMO) } // DEMO: comentar esta linea para APK limpia
+    var estadoCodigo by remember { mutableStateOf(TextFieldValue(CODIGO_DEMO)) } // DEMO: comentar esta linea para APK limpia
     var ejecutando by remember { mutableStateOf(false) }
     var resultado by remember { mutableStateOf<ResultadoAnalisisFormulario?>(null) }
     var elementosAcumulados by remember { mutableStateOf<List<ElementoFormulario>>(emptyList()) }
     var modoContestar by remember { mutableStateOf(false) }
+    var menuColorAbierto by remember { mutableStateOf(false) }
+    val respuestasUsuario = remember { mutableStateMapOf<Int, String>() }
+    val mensajesEnvio = remember { mutableStateListOf<String>() }
+    var resultadoEnvio by remember { mutableStateOf<ResultadoEnvioFormulario?>(null) }
 
     LaunchedEffect(elementosAcumulados) {
         if (elementosAcumulados.isEmpty()) {
@@ -101,13 +281,52 @@ fun PantallaAnalizadorFormulario(modifier: Modifier = Modifier) {
         Text(text = "Editor .form", style = MaterialTheme.typography.titleMedium)
 
         OutlinedTextField(
-            value = codigoFuente,
-            onValueChange = { codigoFuente = it },
+            value = estadoCodigo,
+            onValueChange = { estadoCodigo = it },
             label = { Text("Codigo fuente") },
+            visualTransformation = transformacionSintaxis,
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = 220.dp)
         )
+
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Button(
+                onClick = {
+                    estadoCodigo = TextFieldValue(
+                        text = PLANTILLA_BASE,
+                        selection = TextRange(PLANTILLA_BASE.length)
+                    )
+                }
+            ) {
+                Text("Insertar plantilla")
+            }
+
+            Button(onClick = { menuColorAbierto = true }) {
+                Text("Selector de colores")
+            }
+
+            DropdownMenu(
+                expanded = menuColorAbierto,
+                onDismissRequest = { menuColorAbierto = false }
+            ) {
+                opcionesColor.forEach { opcion ->
+                    DropdownMenuItem(
+                        text = { Text("${opcion.first} (${opcion.second})") },
+                        onClick = {
+                            val bloqueColor =
+                                "string color_seleccionado = \"${opcion.second}\";\n" +
+                                    "TEXT \"Color elegido ${opcion.first}: ${opcion.second}\";\n"
+                            estadoCodigo = insertarTextoEnCursor(estadoCodigo, bloqueColor)
+                            menuColorAbierto = false
+                        }
+                    )
+                }
+            }
+        }
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(
@@ -115,10 +334,13 @@ fun PantallaAnalizadorFormulario(modifier: Modifier = Modifier) {
                     alcanceCorrutina.launch {
                         ejecutando = true
                         val resultadoNuevo = withContext(Dispatchers.Default) {
-                            servicioAnalisis.ejecutar(codigoFuente)
+                            servicioAnalisis.ejecutar(estadoCodigo.text)
                         }
                         resultado = resultadoNuevo
                         elementosAcumulados = resultadoNuevo.elementosFormulario
+                        respuestasUsuario.clear()
+                        mensajesEnvio.clear()
+                        resultadoEnvio = null
                         ejecutando = false
                     }
                 },
@@ -132,10 +354,16 @@ fun PantallaAnalizadorFormulario(modifier: Modifier = Modifier) {
                     alcanceCorrutina.launch {
                         ejecutando = true
                         val resultadoNuevo = withContext(Dispatchers.Default) {
-                            servicioAnalisis.ejecutar(codigoFuente)
+                            servicioAnalisis.ejecutar(estadoCodigo.text)
                         }
+                        val inicioNuevos = elementosAcumulados.size
                         resultado = resultadoNuevo
                         elementosAcumulados = elementosAcumulados + resultadoNuevo.elementosFormulario
+                        resultadoNuevo.elementosFormulario.forEachIndexed { indiceLocal, _ ->
+                            respuestasUsuario[inicioNuevos + indiceLocal] = ""
+                        }
+                        mensajesEnvio.clear()
+                        resultadoEnvio = null
                         ejecutando = false
                     }
                 },
@@ -191,11 +419,50 @@ fun PantallaAnalizadorFormulario(modifier: Modifier = Modifier) {
                 )
                 FormularioRenderizado(
                     elementos = elementosAcumulados,
-                    modoContestar = modoContestar
+                    modoContestar = modoContestar,
+                    respuestas = respuestasUsuario
                 )
                 if (modoContestar) {
-                    TextButton(onClick = { }) {
+                    TextButton(
+                        onClick = {
+                            val correccion = corregirRespuestas(elementosAcumulados, respuestasUsuario)
+                            resultadoEnvio = correccion
+                            mensajesEnvio.clear()
+                            if (correccion.totalPreguntas == 0) {
+                                mensajesEnvio.add("No hay preguntas para enviar.")
+                            } else {
+                                mensajesEnvio.add("Formulario enviado.")
+                                if (correccion.sinResponder > 0) {
+                                    mensajesEnvio.add("Faltan ${correccion.sinResponder} respuestas por completar.")
+                                }
+                                if (correccion.cerradasCorregibles > 0) {
+                                    mensajesEnvio.add(
+                                        "Correccion cerradas: ${correccion.cerradasValidas}/${correccion.cerradasCorregibles} validas."
+                                    )
+                                    if (correccion.cerradasInvalidas > 0) {
+                                        mensajesEnvio.add("Usa indices desde 0 en preguntas cerradas.")
+                                    }
+                                }
+                            }
+                        }
+                    ) {
                         Text("Enviar")
+                    }
+
+                    if (mensajesEnvio.isNotEmpty()) {
+                        mensajesEnvio.forEach { mensaje ->
+                            Text(mensaje)
+                        }
+                    }
+
+                    resultadoEnvio?.let { envio ->
+                        Text("Resumen envio: ${envio.respondidas}/${envio.totalPreguntas} respondidas")
+                        if (envio.detalleInvalidas.isNotEmpty()) {
+                            Text("Detalle respuestas cerradas invalidas:")
+                            envio.detalleInvalidas.forEach {
+                                Text("- $it")
+                            }
+                        }
                     }
                 }
             }
@@ -206,9 +473,9 @@ fun PantallaAnalizadorFormulario(modifier: Modifier = Modifier) {
 @Composable
 private fun FormularioRenderizado(
     elementos: List<ElementoFormulario>,
-    modoContestar: Boolean
+    modoContestar: Boolean,
+    respuestas: MutableMap<Int, String>
 ) {
-    val respuestas = remember(modoContestar) { mutableStateMapOf<Int, String>() }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         elementos.forEachIndexed { indice, elemento ->
             when (elemento.tipo) {
@@ -257,7 +524,14 @@ private fun FormularioRenderizado(
                         OutlinedTextField(
                             value = respuestas[indice] ?: "",
                             onValueChange = { respuestas[indice] = it },
-                            label = { Text("Respuesta (MVP)") },
+                            label = {
+                                val etiqueta = if (elemento.tipo == TipoElementoFormulario.MULTIPLE_QUESTION) {
+                                    "Indices separados por coma"
+                                } else {
+                                    "Indice de respuesta (desde 0)"
+                                }
+                                Text(etiqueta)
+                            },
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
