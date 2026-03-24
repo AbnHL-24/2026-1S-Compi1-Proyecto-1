@@ -40,11 +40,23 @@ ENTERO = [0-9]+
 CADENA = [\"]([^\"\n]|\\\")*[\"]
 
 SECTION = "SECTION"
+TABLE = "TABLE"
 TEXT = "TEXT"
 OPEN_QUESTION = "OPEN_QUESTION"
 DROP_QUESTION = "DROP_QUESTION"
 SELECT_QUESTION = "SELECT_QUESTION"
 MULTIPLE_QUESTION = "MULTIPLE_QUESTION"
+IF = "IF"
+ELSE = "ELSE"
+WHILE = "WHILE"
+DO = "DO"
+FOR = "FOR"
+IN = "in"
+SPECIAL = "special"
+DRAW = "draw"
+WHO_IS_THAT_POKEMON = "who_is_that_pokemon"
+ELEMENTS = "elements"
+STYLES = "styles"
 NUMBER = "number"
 STRING = "string"
 TRUE = "true"
@@ -70,21 +82,35 @@ ASIGNACION = "="
 PUNTO_Y_COMA = ";"
 DOS_PUNTOS = ":"
 COMA = ","
+PUNTO = "."
 PARENTESIS_IZQ = "("
 PARENTESIS_DER = ")"
 LLAVE_IZQ = "{"
 LLAVE_DER = "}"
 CORCHETE_IZQ = "["
 CORCHETE_DER = "]"
+RANGO = ".."
 
 %%
 
 <YYINITIAL> {SECTION} { return simbolo(sym.SECTION); }
+<YYINITIAL> {TABLE} { return simbolo(sym.TABLE); }
 <YYINITIAL> {TEXT} { return simbolo(sym.TEXT); }
 <YYINITIAL> {OPEN_QUESTION} { return simbolo(sym.OPEN_QUESTION); }
 <YYINITIAL> {DROP_QUESTION} { return simbolo(sym.DROP_QUESTION); }
 <YYINITIAL> {SELECT_QUESTION} { return simbolo(sym.SELECT_QUESTION); }
 <YYINITIAL> {MULTIPLE_QUESTION} { return simbolo(sym.MULTIPLE_QUESTION); }
+<YYINITIAL> {IF} { return simbolo(sym.IF); }
+<YYINITIAL> {ELSE} { return simbolo(sym.ELSE); }
+<YYINITIAL> {WHILE} { return simbolo(sym.WHILE); }
+<YYINITIAL> {DO} { return simbolo(sym.DO); }
+<YYINITIAL> {FOR} { return simbolo(sym.FOR); }
+<YYINITIAL> {IN} { return simbolo(sym.IN); }
+<YYINITIAL> {SPECIAL} { return simbolo(sym.SPECIAL); }
+<YYINITIAL> {DRAW} { return simbolo(sym.DRAW); }
+<YYINITIAL> {WHO_IS_THAT_POKEMON} { return simbolo(sym.WHO_IS_THAT_POKEMON); }
+<YYINITIAL> {ELEMENTS} { return simbolo(sym.ELEMENTS); }
+<YYINITIAL> {STYLES} { return simbolo(sym.STYLES); }
 <YYINITIAL> {NUMBER} { return simbolo(sym.NUMBER); }
 <YYINITIAL> {STRING} { return simbolo(sym.STRING); }
 <YYINITIAL> {TRUE} { return simbolo(sym.TRUE); }
@@ -110,12 +136,14 @@ CORCHETE_DER = "]"
 <YYINITIAL> {PUNTO_Y_COMA} { return simbolo(sym.PUNTO_Y_COMA); }
 <YYINITIAL> {DOS_PUNTOS} { return simbolo(sym.DOS_PUNTOS); }
 <YYINITIAL> {COMA} { return simbolo(sym.COMA); }
+<YYINITIAL> {PUNTO} { return simbolo(sym.PUNTO); }
 <YYINITIAL> {PARENTESIS_IZQ} { return simbolo(sym.PARENTESIS_IZQ); }
 <YYINITIAL> {PARENTESIS_DER} { return simbolo(sym.PARENTESIS_DER); }
 <YYINITIAL> {LLAVE_IZQ} { return simbolo(sym.LLAVE_IZQ); }
 <YYINITIAL> {LLAVE_DER} { return simbolo(sym.LLAVE_DER); }
 <YYINITIAL> {CORCHETE_IZQ} { return simbolo(sym.CORCHETE_IZQ); }
 <YYINITIAL> {CORCHETE_DER} { return simbolo(sym.CORCHETE_DER); }
+<YYINITIAL> {RANGO} { return simbolo(sym.RANGO); }
 
 <YYINITIAL> "$"[^\n]* { }
 <YYINITIAL> "/*"([^*]|\*+[^*/])*\*+"/" { }
