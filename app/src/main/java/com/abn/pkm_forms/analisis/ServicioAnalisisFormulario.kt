@@ -12,6 +12,7 @@ data class ResultadoAnalisisFormulario(
     val erroresLexicos: List<ErrorLexico>,
     val erroresSintacticos: List<ErrorSintactico>,
     val erroresSemanticos: List<String>,
+    val advertenciasSemanticas: List<String>,
     val elementosFormulario: List<ElementoFormulario>
 )
 
@@ -41,6 +42,7 @@ class ServicioAnalisisFormulario {
             erroresLexicos = scanner.erroresLexicos,
             erroresSintacticos = parser.erroresSintacticos,
             erroresSemanticos = resultadoEjecucion.erroresSemanticos,
+            advertenciasSemanticas = resultadoEjecucion.advertenciasSemanticas,
             elementosFormulario = resultadoEjecucion.elementosFormulario
         )
     }

@@ -5,6 +5,7 @@ import com.abn.pkm_forms.interprete.excepciones.ErrorInterpretacion
 
 class Arbol(val instrucciones: List<Instruccion>) {
     val errores: MutableList<ErrorInterpretacion> = mutableListOf()
+    val advertencias: MutableList<String> = mutableListOf()
     val elementosFormulario: MutableList<ElementoFormulario> = mutableListOf()
     var salidaConsola: String = ""
     var limiteIteraciones: Int = 1000
@@ -17,6 +18,10 @@ class Arbol(val instrucciones: List<Instruccion>) {
 
     fun agregarSalida(texto: String) {
         salidaConsola += texto + "\n"
+    }
+
+    fun agregarAdvertencia(advertencia: String) {
+        advertencias.add(advertencia)
     }
 
     fun agregarElemento(elemento: ElementoFormulario) {

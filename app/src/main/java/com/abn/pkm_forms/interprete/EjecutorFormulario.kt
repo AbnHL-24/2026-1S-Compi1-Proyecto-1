@@ -7,6 +7,7 @@ import com.abn.pkm_forms.interprete.simbolo.TablaSimbolos
 
 data class ResultadoEjecucionFormulario(
     val erroresSemanticos: List<String>,
+    val advertenciasSemanticas: List<String>,
     val elementosFormulario: List<ElementoFormulario>
 )
 
@@ -26,6 +27,7 @@ class EjecutorFormulario {
             erroresSemanticos = arbol.errores.map {
                 "${it.tipo}: ${it.descripcion} (fila ${it.fila}, col ${it.columna})"
             },
+            advertenciasSemanticas = arbol.advertencias,
             elementosFormulario = arbol.elementosFormulario
         )
     }
